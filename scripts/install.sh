@@ -168,7 +168,10 @@ main() {
     echo "  hazel onboard --wizard"
     echo ""
     echo "The wizard walks you through configuring your"
-    echo "API key, model, and chat channels."
+    echo "API key, model, and chat channels. Then:"
+    echo ""
+    echo "  hazel agent       # interactive chat"
+    echo "  hazel gateway     # start the always-on daemon"
     echo ""
 }
 
