@@ -1,16 +1,96 @@
 <div align="center">
   <img src="hazel_logo.png" alt="hazel" width="500">
-  <h1>Hazel: Ultra-Lightweight Personal AI Assistant</h1>
+  <h1>Hazel</h1>
+  <p>A personal AI assistant that connects LLMs to your chat apps and gives them tools to act.</p>
   <p>
-    <a href="https://pypi.org/project/hazel-ai/"><img src="https://img.shields.io/pypi/v/hazel-ai" alt="PyPI"></a>
-    <a href="https://pepy.tech/project/hazel-ai"><img src="https://static.pepy.tech/badge/hazel-ai" alt="Downloads"></a>
     <img src="https://img.shields.io/badge/python-≥3.11-blue" alt="Python">
     <img src="https://img.shields.io/badge/license-MIT-green" alt="License">
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/Feishu-Group-E9DBFC?style=flat&logo=feishu&logoColor=white" alt="Feishu"></a>
-    <a href="./COMMUNICATION.md"><img src="https://img.shields.io/badge/WeChat-Group-C5EAB4?style=flat&logo=wechat&logoColor=white" alt="WeChat"></a>
-    <a href="https://discord.gg/MnCvHqpUGB"><img src="https://img.shields.io/badge/Discord-Community-5865F2?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+    <a href="https://github.com/ThomasPinella/hazel/releases/latest"><img src="https://img.shields.io/github/v/release/ThomasPinella/hazel" alt="Release"></a>
   </p>
 </div>
+
+## Install
+
+One command. No Python setup required — the installer handles everything.
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | sh
+```
+
+This installs [uv](https://docs.astral.sh/uv/) (if needed), which manages Python automatically, then installs Hazel and puts the `hazel` command on your PATH.
+
+To install a specific version:
+
+```bash
+HAZEL_VERSION=v0.1.4 curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | sh
+```
+
+### Uninstall
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/uninstall.sh | sh
+```
+
+Removes the `hazel` binary, its isolated environment, and the dashboard service. Your data in `~/.hazel/` is kept unless you choose to delete it.
+
+## What is Hazel?
+
+Hazel is an ultra-lightweight AI assistant framework. It connects any LLM (Claude, GPT, Gemini, DeepSeek, local models, etc.) to chat platforms like Telegram, Discord, Slack, WhatsApp, and more. The LLM gets access to tools — file I/O, shell commands, web search, scheduled tasks, MCP servers — so it can act as an autonomous agent on your behalf.
+
+**How it works:**
+
+```
+You ──► Chat App (Telegram/Discord/...) ──► Hazel ──► LLM Provider
+                                              │              │
+                                              │        tool calls
+                                              │              │
+                                         Response ◄── Tools ◄┘
+                                                    (shell, files, web, cron, MCP)
+```
+
+**Key capabilities:**
+- **Chat platform integration** — Telegram, Discord, Slack, WhatsApp, Email, Matrix, Feishu, DingTalk, QQ, WeCom, and more
+- **Tool use** — file read/write/edit, shell commands, web search/fetch, scheduled tasks
+- **MCP support** — connect any Model Context Protocol server as additional tools
+- **Persistent memory** — structured entity memory, daily logs, long-term facts
+- **Scheduled tasks** — cron jobs, reminders, and periodic heartbeat tasks
+- **Multi-provider** — works with 20+ LLM providers out of the box
+- **Background agents** — spawn subagents for long-running tasks
+- **Skills system** — extensible with custom skill plugins
+
+## Quick Start
+
+```bash
+# 1. Set up config and workspace
+hazel onboard
+
+# 2. Add your API key to ~/.hazel/config.json
+#    Get one at: https://openrouter.ai/keys
+
+# 3. Chat
+hazel agent
+
+# Or start the always-on daemon (connects to Telegram, Discord, etc.)
+hazel gateway
+```
+
+## CLI Reference
+
+| Command | Description |
+|---------|-------------|
+| `hazel onboard` | First-time setup (creates config + workspace) |
+| `hazel onboard --wizard` | Interactive setup wizard |
+| `hazel agent` | Interactive chat mode |
+| `hazel agent -m "..."` | One-shot message |
+| `hazel gateway` | Start the always-on daemon (channels + cron + heartbeat) |
+| `hazel status` | Show current config and connection status |
+| `hazel channels login` | Link WhatsApp (scan QR) |
+| `hazel channels status` | Show channel status |
+| `hazel provider login <name>` | OAuth login for providers (e.g. `openai-codex`) |
+
+---
+
+## Detailed Documentation
 
 🐈 **Hazel** is an **ultra-lightweight** personal AI assistant inspired by [OpenClaw](https://github.com/openclaw/openclaw).
 
@@ -90,17 +170,20 @@
 
 ## Table of Contents
 
+- [Install / Uninstall](#install)
+- [What is Hazel?](#what-is-hazel)
+- [Quick Start](#quick-start)
+- [CLI Reference](#cli-reference)
 - [News](#-news)
 - [Key Features](#key-features-of-hazel)
 - [Architecture](#️-architecture)
 - [Features](#-features)
-- [Install](#-install)
-- [Quick Start](#-quick-start)
+- [Alternative Install Methods](#-install)
 - [Chat Apps](#-chat-apps)
 - [Agent Social Network](#-agent-social-network)
 - [Configuration](#️-configuration)
 - [Multiple Instances](#-multiple-instances)
-- [CLI Reference](#-cli-reference)
+- [Full CLI Reference](#-full-cli-reference)
 - [Docker](#-docker)
 - [Linux Service](#-linux-service)
 - [Project Structure](#-project-structure)
@@ -132,40 +215,28 @@
 
 ## 📦 Install
 
-**Install from source** (latest features, recommended for development)
+See [Install](#install) at the top of this README for the recommended one-command install.
+
+**Alternative methods:**
 
 ```bash
-git clone https://github.com/HKUDS/hazel.git
+# Install from source (for development)
+git clone https://github.com/ThomasPinella/hazel.git
 cd hazel
 pip install -e .
-```
 
-**Install with [uv](https://github.com/astral-sh/uv)** (stable, fast)
-
-```bash
-uv tool install hazel-ai
-```
-
-**Install from PyPI** (stable)
-
-```bash
+# Install from PyPI
 pip install hazel-ai
 ```
 
 ### Update to latest version
 
-**PyPI / pip**
-
 ```bash
+# Re-run the install script (handles upgrades automatically)
+curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | sh
+
+# Or if installed via pip:
 pip install -U hazel-ai
-hazel --version
-```
-
-**uv**
-
-```bash
-uv tool upgrade hazel-ai
-hazel --version
 ```
 
 **Using WhatsApp?** Rebuild the local bridge after upgrading:
@@ -1325,21 +1396,22 @@ hazel gateway --config ~/.hazel-telegram/config.json --workspace /tmp/hazel-tele
 - `--workspace` overrides the workspace defined in the config file
 - Cron jobs and runtime media/state are derived from the config directory
 
-## 💻 CLI Reference
+## 💻 Full CLI Reference
 
 | Command | Description |
 |---------|-------------|
 | `hazel onboard` | Initialize config & workspace at `~/.hazel/` |
 | `hazel onboard --wizard` | Launch the interactive onboarding wizard |
 | `hazel onboard -c <config> -w <workspace>` | Initialize or refresh a specific instance config and workspace |
-| `hazel agent -m "..."` | Chat with the agent |
-| `hazel agent -w <workspace>` | Chat against a specific workspace |
-| `hazel agent -w <workspace> -c <config>` | Chat against a specific workspace/config |
 | `hazel agent` | Interactive chat mode |
+| `hazel agent -m "..."` | One-shot message |
+| `hazel agent -w <workspace>` | Chat against a specific workspace |
+| `hazel agent -c <config> -w <workspace>` | Chat against a specific config/workspace |
 | `hazel agent --no-markdown` | Show plain-text replies |
 | `hazel agent --logs` | Show runtime logs during chat |
-| `hazel gateway` | Start the gateway |
-| `hazel status` | Show status |
+| `hazel gateway` | Start the always-on daemon |
+| `hazel gateway -p <port>` | Start on a specific port |
+| `hazel status` | Show current config and connection status |
 | `hazel provider login openai-codex` | OAuth login for providers |
 | `hazel channels login` | Link WhatsApp (scan QR) |
 | `hazel channels status` | Show channel status |
