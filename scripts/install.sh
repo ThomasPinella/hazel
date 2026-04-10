@@ -163,11 +163,12 @@ main() {
 
     echo ""
     echo "---------------------------------------"
-    info "Get started:"
+    info "Run this next to set up Hazel:"
     echo ""
-    echo "  hazel onboard     # first-time setup"
-    echo "  hazel agent       # interactive chat"
-    echo "  hazel gateway     # start the daemon"
+    echo "  hazel onboard --wizard"
+    echo ""
+    echo "The wizard walks you through configuring your"
+    echo "API key, model, and chat channels."
     echo ""
 }
 
