@@ -1,0 +1,21 @@
+[Unit]
+Description=Hazel Canvas Dashboard Server
+Documentation=https://github.com/hazel-ai/hazel
+After=network.target
+
+[Service]
+Type=simple
+User=thomas
+WorkingDirectory=/home/thomas/projects/hazel/canvas
+ExecStart=/usr/bin/env node /home/thomas/projects/hazel/canvas/dashboard-server.js 8081
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+Environment=NODE_ENV=production
+Environment=DASHBOARD_PORT=8081
+# Set workspace path if different from default (~/.hazel/workspace)
+# Environment=HAZEL_WORKSPACE=/path/to/workspace
+
+[Install]
+WantedBy=multi-user.target

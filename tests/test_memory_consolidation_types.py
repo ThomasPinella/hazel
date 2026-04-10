@@ -1,18 +1,31 @@
 """Test MemoryStore.consolidate() handles non-string tool call arguments.
 
-Regression test for https://github.com/HKUDS/nanobot/issues/1042
+Regression test for https://github.com/HKUDS/hazel/issues/1042
 When memory consolidation receives dict values instead of strings from the LLM
 tool call response, it should serialize them to JSON instead of raising TypeError.
 """
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
-from nanobot.agent.memory import MemoryStore
-from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from hazel.agent.memory import MemoryStore
+from hazel.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+
+_DATE_FILE_RE = re.compile(r"\d{4}-\d{2}-\d{2}\.md$")
+
+
+def _daily_files(store: MemoryStore) -> list[Path]:
+    """Return all daily history files in the memory directory."""
+    return sorted(p for p in store.memory_dir.iterdir() if _DATE_FILE_RE.match(p.name))
+
+
+def _daily_content(store: MemoryStore) -> str:
+    """Concatenate text from all daily history files."""
+    return "\n".join(p.read_text(encoding="utf-8") for p in _daily_files(store))
 
 
 def _make_messages(message_count: int = 30):
@@ -76,8 +89,8 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is True
-        assert store.history_file.exists()
-        assert "[2026-01-01] User discussed testing." in store.history_file.read_text()
+        assert _daily_files(store)
+        assert "User discussed testing." in _daily_content(store)
         assert "User likes testing." in store.memory_file.read_text()
 
     @pytest.mark.asyncio
@@ -97,10 +110,9 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is True
-        assert store.history_file.exists()
-        history_content = store.history_file.read_text()
-        parsed = json.loads(history_content.strip())
-        assert parsed["summary"] == "User discussed testing."
+        assert _daily_files(store)
+        history_content = _daily_content(store)
+        assert "User discussed testing." in history_content
 
         memory_content = store.memory_file.read_text()
         parsed_mem = json.loads(memory_content)
@@ -132,7 +144,7 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is True
-        assert "User discussed testing." in store.history_file.read_text()
+        assert "User discussed testing." in _daily_content(store)
 
     @pytest.mark.asyncio
     async def test_no_tool_call_returns_false(self, tmp_path: Path) -> None:
@@ -148,7 +160,7 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is False
-        assert not store.history_file.exists()
+        assert not _daily_files(store)
 
     @pytest.mark.asyncio
     async def test_skips_when_message_chunk_is_empty(self, tmp_path: Path) -> None:
@@ -189,7 +201,7 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is True
-        assert "User discussed testing." in store.history_file.read_text()
+        assert "User discussed testing." in _daily_content(store)
         assert "User likes testing." in store.memory_file.read_text()
 
     @pytest.mark.asyncio
@@ -262,7 +274,7 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is False
-        assert not store.history_file.exists()
+        assert not _daily_files(store)
         assert not store.memory_file.exists()
 
     @pytest.mark.asyncio
@@ -287,7 +299,7 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is False
-        assert not store.history_file.exists()
+        assert not _daily_files(store)
         assert not store.memory_file.exists()
 
     @pytest.mark.asyncio
@@ -306,7 +318,7 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is False
-        assert not store.history_file.exists()
+        assert not _daily_files(store)
         assert not store.memory_file.exists()
 
     @pytest.mark.asyncio
@@ -325,7 +337,7 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is False
-        assert not store.history_file.exists()
+        assert not _daily_files(store)
         assert not store.memory_file.exists()
 
     @pytest.mark.asyncio
@@ -344,7 +356,7 @@ class TestMemoryConsolidationTypeHandling:
         async def _fake_sleep(delay: int) -> None:
             delays.append(delay)
 
-        monkeypatch.setattr("nanobot.providers.base.asyncio.sleep", _fake_sleep)
+        monkeypatch.setattr("hazel.providers.base.asyncio.sleep", _fake_sleep)
 
         result = await store.consolidate(messages, provider, "test-model")
 
@@ -406,7 +418,7 @@ class TestMemoryConsolidationTypeHandling:
         assert len(call_log) == 2
         assert isinstance(call_log[0]["tool_choice"], dict)
         assert call_log[1]["tool_choice"] == "auto"
-        assert "Fallback worked." in store.history_file.read_text()
+        assert "Fallback worked." in _daily_content(store)
 
     @pytest.mark.asyncio
     async def test_tool_choice_fallback_auto_no_tool_call(self, tmp_path: Path) -> None:
@@ -430,7 +442,7 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(messages, provider, "test-model")
 
         assert result is False
-        assert not store.history_file.exists()
+        assert not _daily_files(store)
 
     @pytest.mark.asyncio
     async def test_raw_archive_after_consecutive_failures(self, tmp_path: Path) -> None:
@@ -445,8 +457,8 @@ class TestMemoryConsolidationTypeHandling:
         assert await store.consolidate(messages, provider, "m") is False
         assert await store.consolidate(messages, provider, "m") is True
 
-        assert store.history_file.exists()
-        content = store.history_file.read_text()
+        assert _daily_files(store)
+        content = _daily_content(store)
         assert "[RAW]" in content
         assert "10 messages" in content
         assert "msg0" in content

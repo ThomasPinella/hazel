@@ -6,8 +6,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pytest import mark
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.channels.feishu import FeishuChannel
+from hazel.bus.events import OutboundMessage
+from hazel.channels.feishu import FeishuChannel
 
 
 @pytest.fixture

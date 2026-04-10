@@ -1,0 +1,14 @@
+{
+  "name": "hazel-canvas",
+  "version": "0.1.0",
+  "description": "Hazel Canvas Dashboard — entity graph, intents, and memory viewer",
+  "private": true,
+  "main": "dashboard-server.js",
+  "scripts": {
+    "start": "node dashboard-server.js",
+    "dev": "node dashboard-server.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  }
+}

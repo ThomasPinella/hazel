@@ -1,12 +1,12 @@
 [project]
-name = "nanobot-ai"
+name = "hazel-ai"
 version = "0.1.4.post5"
 description = "A lightweight personal AI assistant framework"
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.11"
 license = {text = "MIT"}
 authors = [
-    {name = "nanobot contributors"}
+    {name = "Hazel contributors"}
 ]
 keywords = ["ai", "agent", "chatbot"]
 classifiers = [
@@ -72,7 +72,7 @@ dev = [
 ]
 
 [project.scripts]
-nanobot = "nanobot.cli.commands:app"
+hazel = "hazel.cli.commands:app"
 
 [build-system]
 requires = ["hatchling"]
@@ -83,27 +83,37 @@ allow-direct-references = true
 
 [tool.hatch.build]
 include = [
-    "nanobot/**/*.py",
-    "nanobot/templates/**/*.md",
-    "nanobot/skills/**/*.md",
-    "nanobot/skills/**/*.sh",
+    "hazel/**/*.py",
+    "hazel/templates/**/*.md",
+    "hazel/templates/**/*.sh",
+    "hazel/skills/**/*.md",
+    "hazel/skills/**/*.sh",
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["nanobot"]
+packages = ["hazel"]
 
 [tool.hatch.build.targets.wheel.sources]
-"nanobot" = "nanobot"
+"hazel" = "hazel"
 
 [tool.hatch.build.targets.wheel.force-include]
-"bridge" = "nanobot/bridge"
+"bridge" = "hazel/bridge"
+"canvas/dashboard-server.js" = "hazel/canvas/dashboard-server.js"
+"canvas/dashboard.html" = "hazel/canvas/dashboard.html"
+"canvas/package.json" = "hazel/canvas/package.json"
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "nanobot/",
+    "hazel/",
     "bridge/",
+    "canvas/dashboard-server.js",
+    "canvas/dashboard.html",
+    "canvas/package.json",
     "README.md",
     "LICENSE",
+]
+exclude = [
+    "canvas/node_modules/**",
 ]
 
 [tool.ruff]

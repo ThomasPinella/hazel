@@ -5,6 +5,7 @@
 *.pyc
 dist/
 build/
+packages/
 *.egg-info/
 *.egg
 *.pycs

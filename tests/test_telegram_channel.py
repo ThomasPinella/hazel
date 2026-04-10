@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from nanobot.bus.events import OutboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.channels.telegram import TELEGRAM_REPLY_CONTEXT_MAX_LEN, TelegramChannel
-from nanobot.channels.telegram import TelegramConfig
+from hazel.bus.events import OutboundMessage
+from hazel.bus.queue import MessageBus
+from hazel.channels.telegram import TELEGRAM_REPLY_CONTEXT_MAX_LEN, TelegramChannel
+from hazel.channels.telegram import TelegramConfig
 
 
 class _FakeHTTPXRequest:
@@ -39,7 +39,7 @@ class _FakeBot:
 
     async def get_me(self):
         self.get_me_calls += 1
-        return SimpleNamespace(id=999, username="nanobot_test")
+        return SimpleNamespace(id=999, username="hazel_test")
 
     async def set_my_commands(self, commands) -> None:
         self.commands = commands
@@ -161,9 +161,9 @@ async def test_start_creates_separate_pools_with_proxy(monkeypatch) -> None:
     app = _FakeApp(lambda: setattr(channel, "_running", False))
     builder = _FakeBuilder(app)
 
-    monkeypatch.setattr("nanobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr("hazel.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
     monkeypatch.setattr(
-        "nanobot.channels.telegram.Application",
+        "hazel.channels.telegram.Application",
         SimpleNamespace(builder=lambda: builder),
     )
 
@@ -194,9 +194,9 @@ async def test_start_respects_custom_pool_config(monkeypatch) -> None:
     app = _FakeApp(lambda: setattr(channel, "_running", False))
     builder = _FakeBuilder(app)
 
-    monkeypatch.setattr("nanobot.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr("hazel.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
     monkeypatch.setattr(
-        "nanobot.channels.telegram.Application",
+        "hazel.channels.telegram.Application",
         SimpleNamespace(builder=lambda: builder),
     )
 
@@ -232,7 +232,7 @@ async def test_send_text_retries_on_timeout() -> None:
 
     channel._app.bot.send_message = flaky_send
 
-    import nanobot.channels.telegram as tg_mod
+    import hazel.channels.telegram as tg_mod
     orig_delay = tg_mod._SEND_RETRY_BASE_DELAY
     tg_mod._SEND_RETRY_BASE_DELAY = 0.01
     try:
@@ -260,7 +260,7 @@ async def test_send_text_gives_up_after_max_retries() -> None:
 
     channel._app.bot.send_message = always_timeout
 
-    import nanobot.channels.telegram as tg_mod
+    import hazel.channels.telegram as tg_mod
     orig_delay = tg_mod._SEND_RETRY_BASE_DELAY
     tg_mod._SEND_RETRY_BASE_DELAY = 0.01
     try:
@@ -352,7 +352,7 @@ async def test_send_remote_media_url_after_security_validation(monkeypatch) -> N
         MessageBus(),
     )
     channel._app = _FakeApp(lambda: None)
-    monkeypatch.setattr("nanobot.channels.telegram.validate_url_target", lambda url: (True, ""))
+    monkeypatch.setattr("hazel.channels.telegram.validate_url_target", lambda url: (True, ""))
 
     await channel.send(
         OutboundMessage(
@@ -381,7 +381,7 @@ async def test_send_blocks_unsafe_remote_media_url(monkeypatch) -> None:
     )
     channel._app = _FakeApp(lambda: None)
     monkeypatch.setattr(
-        "nanobot.channels.telegram.validate_url_target",
+        "hazel.channels.telegram.validate_url_target",
         lambda url: (False, "Blocked: example.com resolves to private/internal address 127.0.0.1"),
     )
 
@@ -443,8 +443,8 @@ async def test_group_policy_mention_accepts_text_mention_and_caches_bot_identity
     channel._start_typing = lambda _chat_id: None
 
     mention = SimpleNamespace(type="mention", offset=0, length=13)
-    await channel._on_message(_make_telegram_update(text="@nanobot_test hi", entities=[mention]), None)
-    await channel._on_message(_make_telegram_update(text="@nanobot_test again", entities=[mention]), None)
+    await channel._on_message(_make_telegram_update(text="@hazel_test hi", entities=[mention]), None)
+    await channel._on_message(_make_telegram_update(text="@hazel_test again", entities=[mention]), None)
 
     assert len(handled) == 2
     assert channel._app.bot.get_me_calls == 1
@@ -468,12 +468,12 @@ async def test_group_policy_mention_accepts_caption_mention() -> None:
 
     mention = SimpleNamespace(type="mention", offset=0, length=13)
     await channel._on_message(
-        _make_telegram_update(caption="@nanobot_test photo", caption_entities=[mention]),
+        _make_telegram_update(caption="@hazel_test photo", caption_entities=[mention]),
         None,
     )
 
     assert len(handled) == 1
-    assert handled[0]["content"] == "@nanobot_test photo"
+    assert handled[0]["content"] == "@hazel_test photo"
 
 
 @pytest.mark.asyncio
@@ -590,7 +590,7 @@ async def test_download_message_media_returns_path_when_download_succeeds(
     media_dir = tmp_path / "media" / "telegram"
     media_dir.mkdir(parents=True)
     monkeypatch.setattr(
-        "nanobot.channels.telegram.get_media_dir",
+        "hazel.channels.telegram.get_media_dir",
         lambda channel=None: media_dir if channel else tmp_path / "media",
     )
 
@@ -626,7 +626,7 @@ async def test_download_message_media_uses_file_unique_id_when_available(
     media_dir = tmp_path / "media" / "telegram"
     media_dir.mkdir(parents=True)
     monkeypatch.setattr(
-        "nanobot.channels.telegram.get_media_dir",
+        "hazel.channels.telegram.get_media_dir",
         lambda channel=None: media_dir if channel else tmp_path / "media",
     )
 
@@ -675,7 +675,7 @@ async def test_on_message_attaches_reply_to_media_when_available(monkeypatch, tm
     media_dir = tmp_path / "media" / "telegram"
     media_dir.mkdir(parents=True)
     monkeypatch.setattr(
-        "nanobot.channels.telegram.get_media_dir",
+        "hazel.channels.telegram.get_media_dir",
         lambda channel=None: media_dir if channel else tmp_path / "media",
     )
 
@@ -758,7 +758,7 @@ async def test_on_message_reply_to_caption_and_media(monkeypatch, tmp_path) -> N
     media_dir = tmp_path / "media" / "telegram"
     media_dir.mkdir(parents=True)
     monkeypatch.setattr(
-        "nanobot.channels.telegram.get_media_dir",
+        "hazel.channels.telegram.get_media_dir",
         lambda channel=None: media_dir if channel else tmp_path / "media",
     )
 

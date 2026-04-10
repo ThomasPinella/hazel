@@ -1,6 +1,6 @@
-from nanobot.agent.context import ContextBuilder
-from nanobot.agent.loop import AgentLoop
-from nanobot.session.manager import Session
+from hazel.agent.context import ContextBuilder
+from hazel.agent.loop import AgentLoop
+from hazel.session.manager import Session
 
 
 def _mk_loop() -> AgentLoop:

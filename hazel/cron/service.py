@@ -1,0 +1,628 @@
+"""Cron service for scheduling agent tasks."""
+
+import asyncio
+import json
+import time
+import uuid
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable, Coroutine
+
+from loguru import logger
+
+from hazel.cron.types import CronJob, CronJobState, CronPayload, CronRunRecord, CronSchedule, CronStore
+
+# ---------------------------------------------------------------------------
+# Default jobs bootstrapped on first gateway start
+# ---------------------------------------------------------------------------
+
+INTENT_NOTIFICATIONS_NAME = "Intent Notifications"
+
+INTENT_NOTIFICATIONS_PROMPT = """\
+STEP 1 (MANDATORY): Run `date -u +"%Y-%m-%dT%H:%M:%SZ"` to get the REAL current UTC time. \
+Use ONLY this value as "now". Do NOT use any "Current time" string from this prompt — it may be wrong.
+
+STEP 2: Check for due intents using intent_list_due. Window: from now minus 1 hour to now. Include overdue.
+
+For each result:
+- If status is "snoozed" AND snooze_until is still in the future -> SKIP IT
+- If status is "snoozed" AND snooze_until is in the past -> TREAT AS DUE \
+(snooze expired, set status back to "active" using intent_update)
+- If status is "active" AND due_at is in the FUTURE (after now) -> SKIP IT (not due yet)
+- If status is "active" AND due_at is at or before now -> TREAT AS DUE
+
+For intents that qualify as due:
+- Check if last_fired_at exists and is within the last 2 hours -> SKIP (already notified recently)
+- If not recently notified: Send ONE concise message listing all due intents. \
+Use message tool with action=send, channel=telegram, target=<chat_id from session>.
+- After sending, update each notified intent with intent_update to set last_fired_at to current \
+ISO8601 UTC time. Do NOT snooze, do NOT change status, do NOT change due_at. Just set last_fired_at.
+
+If nothing qualifies: Reply with just NO_REPLY
+"""
+
+DAILY_CONSOLIDATION_NAME = "Daily Memory Consolidation"
+
+DAILY_CONSOLIDATION_PROMPT = """\
+# Daily Consolidation Pass
+
+You are running a daily memory consolidation.
+
+SCHEDULE: You run daily at ~04:00 local time. "Today" means the previous calendar day's logs.
+
+GOAL: Using the previous day's daily log plus entity files touched that day, do a safe consolidation pass that:
+1) Keeps entity files readable and bounded
+2) Prevents any single entity from growing out of control
+3) Optionally splits (shards) entities when necessary
+4) Preserves history (never delete facts)
+
+---
+
+## PRIMARY TARGETING (REQUIRED)
+
+Do NOT scan the whole repository. Identify touched entities by querying the ledger:
+- Use query_changes with:
+  - since = previous day 00:00
+  - until = current day 00:00
+  - path_prefix = "memory/areas/"
+- Operate ONLY on those entity files.
+
+INPUTS YOU MAY READ:
+- The previous day's daily log: memory/YYYY-MM-DD.md (exactly one day)
+- Entity files returned by query_changes
+- ENTITY_TEMPLATE.md
+
+OUTPUT:
+- Edit/create files under memory/areas/** directly.
+- For every CREATE/UPDATE to an entity file, record a ledger entry via record_change with reason "daily_compress".
+- After all changes, regenerate the cards index: bash scripts/generate-cards-index.sh
+
+---
+
+## HARD CONSTRAINTS
+
+- Never delete Facts; only append or mark superseded.
+- Keep CARD header routing-only; do not move facts into CARD.
+- Do not create excessive new entities; only shard when clearly warranted.
+- Do not rewrite unrelated entities not touched yesterday.
+- Never introduce speculative state changes; all updates must be traceable to existing logs or ledger entries.
+
+---
+
+## FILE HEALTH LIMITS
+
+Count non-empty lines only.
+
+| Lines (non-empty) | Action |
+|---|---|
+| ≤ 350 | Healthy — no action needed |
+| 351–600 | Light compression |
+| 601–900 | Aggressive compression; consider sharding |
+| > 900 | Mandatory sharding |
+
+Prefer reducing Notes size first. Do not delete Facts.
+
+---
+
+## CONSOLIDATION PRIORITIES (in order)
+
+### 1) Structure compliance
+Ensure file matches ENTITY_TEMPLATE.md format.
+
+### 2) Temporal Constraints sanity
+- Default assumption: state transitions were already applied during runtime capture.
+- Verify that Current State reflects the latest known state with a correct temporal anchor ("as of YYYY-MM-DD").
+- If a state change occurred yesterday but is NOT reflected in the entity:
+  - Update Current State with an explicit anchor.
+  - Append a State History entry describing the transition.
+  - Record a single ledger entry describing the reconciliation.
+- Keep Current State concise (aim for 5–12 bullets; prefer clarity over completeness).
+
+### 3) Facts hygiene (primarily restructuring, not new content)
+- Default assumption: entity memory has already been updated during runtime capture.
+- Daily consolidation should NOT re-add "yesterday's facts" unless there is evidence runtime capture missed updates.
+- If (and only if) the ledger or daily log explicitly indicates an entity SHOULD have been updated but wasn't:
+  - Add the minimal durable fact(s) needed to reconcile the entity with the daily log.
+  - Include a pointer for detail: "More detail: memory/YYYY-MM-DD.md"
+  - Then write a single ledger entry describing the reconciliation.
+
+### 4) Notes hygiene (especially for domain entities)
+- Keep Notes useful; move long raw-like detail into sharded files when needed.
+- Notes should be distilled observations, takeaways, and open questions — not transcripts.
+
+---
+
+## SHARDING RULES (only if needed)
+
+Shard when ANY of these are true:
+- File exceeds hard cap (~900 lines)
+- Notes section contains multiple distinct subtopics that are hard to navigate
+- Entity has grown into a "hub" with multiple independent strands
+
+### Sharding method
+
+- Keep the original entity as the hub/canonical index.
+- Create 1–N child entities that each cover a coherent sub-scope.
+- Link hub ↔ children using CARD links:
+  - Hub links to children: {rel: related, to: domain_<child_slug>, notes: "Shard: <scope>"}
+  - Children link back: {rel: related, to: domain_<hub_slug>, notes: "Parent hub"}
+- Move the minimum necessary content:
+  - Prefer moving deep Notes content into child entities
+  - Keep hub Current State + key Facts + a short Notes outline that points to children
+- Do not move or delete Facts unless you are moving them verbatim into a better-scoped entity and leaving a pointer note in the hub. Preserve history.
+- Avoid creating more than 3 shards in a single run unless absolutely necessary.
+
+### Naming for shards
+
+Use stable slugs:
+- domain_drones-flight-control
+- domain_art-history-renaissance
+- place_ho-chi-minh-city-district-1
+
+---
+
+## PROCESS
+
+1) Determine the previous date D and locate memory/D.md.
+2) Query ledger for entities touched on date D.
+3) For each entity:
+   a. Read the entity file and ENTITY_TEMPLATE.md
+   b. Apply consolidation priorities (structure → temporal → facts → notes)
+   c. Enforce file health limits
+   d. Shard only if needed
+   e. Record a ledger entry for each entity changed (reason: daily_compress)
+4) Regenerate the cards index: bash scripts/generate-cards-index.sh
+5) Stop. Do NOT produce a user-facing summary unless explicitly asked.
+"""
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
+    """Compute next run time in ms."""
+    if schedule.kind == "at":
+        return schedule.at_ms if schedule.at_ms and schedule.at_ms > now_ms else None
+
+    if schedule.kind == "every":
+        if not schedule.every_ms or schedule.every_ms <= 0:
+            return None
+        # Next interval from now
+        return now_ms + schedule.every_ms
+
+    if schedule.kind == "cron" and schedule.expr:
+        try:
+            from zoneinfo import ZoneInfo
+
+            from croniter import croniter
+            # Use caller-provided reference time for deterministic scheduling
+            base_time = now_ms / 1000
+            tz = ZoneInfo(schedule.tz) if schedule.tz else datetime.now().astimezone().tzinfo
+            base_dt = datetime.fromtimestamp(base_time, tz=tz)
+            cron = croniter(schedule.expr, base_dt)
+            next_dt = cron.get_next(datetime)
+            return int(next_dt.timestamp() * 1000)
+        except Exception:
+            return None
+
+    return None
+
+
+def _validate_schedule_for_add(schedule: CronSchedule) -> None:
+    """Validate schedule fields that would otherwise create non-runnable jobs."""
+    if schedule.tz and schedule.kind != "cron":
+        raise ValueError("tz can only be used with cron schedules")
+
+    if schedule.kind == "cron" and schedule.tz:
+        try:
+            from zoneinfo import ZoneInfo
+
+            ZoneInfo(schedule.tz)
+        except Exception:
+            raise ValueError(f"unknown timezone '{schedule.tz}'") from None
+
+
+class CronService:
+    """Service for managing and executing scheduled jobs."""
+
+    _MAX_RUN_HISTORY = 20
+
+    def __init__(
+        self,
+        store_path: Path,
+        on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None,
+    ):
+        self.store_path = store_path
+        self.on_job = on_job
+        self._store: CronStore | None = None
+        self._last_mtime: float = 0.0
+        self._timer_task: asyncio.Task | None = None
+        self._running = False
+
+    def _load_store(self) -> CronStore:
+        """Load jobs from disk. Reloads automatically if file was modified externally."""
+        if self._store and self.store_path.exists():
+            mtime = self.store_path.stat().st_mtime
+            if mtime != self._last_mtime:
+                logger.info("Cron: jobs.json modified externally, reloading")
+                self._store = None
+        if self._store:
+            return self._store
+
+        if self.store_path.exists():
+            try:
+                data = json.loads(self.store_path.read_text(encoding="utf-8"))
+                jobs = []
+                for j in data.get("jobs", []):
+                    jobs.append(CronJob(
+                        id=j["id"],
+                        name=j["name"],
+                        enabled=j.get("enabled", True),
+                        schedule=CronSchedule(
+                            kind=j["schedule"]["kind"],
+                            at_ms=j["schedule"].get("atMs"),
+                            every_ms=j["schedule"].get("everyMs"),
+                            expr=j["schedule"].get("expr"),
+                            tz=j["schedule"].get("tz"),
+                        ),
+                        payload=CronPayload(
+                            kind=j["payload"].get("kind", "agent_turn"),
+                            message=j["payload"].get("message", ""),
+                            deliver=j["payload"].get("deliver", False),
+                            channel=j["payload"].get("channel"),
+                            to=j["payload"].get("to"),
+                        ),
+                        state=CronJobState(
+                            next_run_at_ms=j.get("state", {}).get("nextRunAtMs"),
+                            last_run_at_ms=j.get("state", {}).get("lastRunAtMs"),
+                            last_status=j.get("state", {}).get("lastStatus"),
+                            last_error=j.get("state", {}).get("lastError"),
+                            run_history=[
+                                CronRunRecord(
+                                    run_at_ms=r["runAtMs"],
+                                    status=r["status"],
+                                    duration_ms=r.get("durationMs", 0),
+                                    error=r.get("error"),
+                                )
+                                for r in j.get("state", {}).get("runHistory", [])
+                            ],
+                        ),
+                        created_at_ms=j.get("createdAtMs", 0),
+                        updated_at_ms=j.get("updatedAtMs", 0),
+                        delete_after_run=j.get("deleteAfterRun", False),
+                    ))
+                self._store = CronStore(jobs=jobs)
+            except Exception as e:
+                logger.warning("Failed to load cron store: {}", e)
+                self._store = CronStore()
+        else:
+            self._store = CronStore()
+
+        return self._store
+
+    def _save_store(self) -> None:
+        """Save jobs to disk."""
+        if not self._store:
+            return
+
+        self.store_path.parent.mkdir(parents=True, exist_ok=True)
+
+        data = {
+            "version": self._store.version,
+            "jobs": [
+                {
+                    "id": j.id,
+                    "name": j.name,
+                    "enabled": j.enabled,
+                    "schedule": {
+                        "kind": j.schedule.kind,
+                        "atMs": j.schedule.at_ms,
+                        "everyMs": j.schedule.every_ms,
+                        "expr": j.schedule.expr,
+                        "tz": j.schedule.tz,
+                    },
+                    "payload": {
+                        "kind": j.payload.kind,
+                        "message": j.payload.message,
+                        "deliver": j.payload.deliver,
+                        "channel": j.payload.channel,
+                        "to": j.payload.to,
+                    },
+                    "state": {
+                        "nextRunAtMs": j.state.next_run_at_ms,
+                        "lastRunAtMs": j.state.last_run_at_ms,
+                        "lastStatus": j.state.last_status,
+                        "lastError": j.state.last_error,
+                        "runHistory": [
+                            {
+                                "runAtMs": r.run_at_ms,
+                                "status": r.status,
+                                "durationMs": r.duration_ms,
+                                "error": r.error,
+                            }
+                            for r in j.state.run_history
+                        ],
+                    },
+                    "createdAtMs": j.created_at_ms,
+                    "updatedAtMs": j.updated_at_ms,
+                    "deleteAfterRun": j.delete_after_run,
+                }
+                for j in self._store.jobs
+            ]
+        }
+
+        self.store_path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        self._last_mtime = self.store_path.stat().st_mtime
+    
+    async def start(self) -> None:
+        """Start the cron service."""
+        self._running = True
+        self._load_store()
+        self._recompute_next_runs()
+        self._save_store()
+        self._arm_timer()
+        logger.info("Cron service started with {} jobs", len(self._store.jobs if self._store else []))
+
+    def stop(self) -> None:
+        """Stop the cron service."""
+        self._running = False
+        if self._timer_task:
+            self._timer_task.cancel()
+            self._timer_task = None
+
+    def _recompute_next_runs(self) -> None:
+        """Recompute next run times for all enabled jobs."""
+        if not self._store:
+            return
+        now = _now_ms()
+        for job in self._store.jobs:
+            if job.enabled:
+                job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
+
+    def _get_next_wake_ms(self) -> int | None:
+        """Get the earliest next run time across all jobs."""
+        if not self._store:
+            return None
+        times = [j.state.next_run_at_ms for j in self._store.jobs
+                 if j.enabled and j.state.next_run_at_ms]
+        return min(times) if times else None
+
+    def _arm_timer(self) -> None:
+        """Schedule the next timer tick."""
+        if self._timer_task:
+            self._timer_task.cancel()
+
+        next_wake = self._get_next_wake_ms()
+        if not next_wake or not self._running:
+            return
+
+        delay_ms = max(0, next_wake - _now_ms())
+        delay_s = delay_ms / 1000
+
+        async def tick():
+            await asyncio.sleep(delay_s)
+            if self._running:
+                await self._on_timer()
+
+        self._timer_task = asyncio.create_task(tick())
+
+    async def _on_timer(self) -> None:
+        """Handle timer tick - run due jobs."""
+        self._load_store()
+        if not self._store:
+            return
+
+        now = _now_ms()
+        due_jobs = [
+            j for j in self._store.jobs
+            if j.enabled and j.state.next_run_at_ms and now >= j.state.next_run_at_ms
+        ]
+
+        for job in due_jobs:
+            await self._execute_job(job)
+
+        self._save_store()
+        self._arm_timer()
+
+    async def _execute_job(self, job: CronJob) -> None:
+        """Execute a single job."""
+        start_ms = _now_ms()
+        logger.info("Cron: executing job '{}' ({})", job.name, job.id)
+
+        try:
+            if self.on_job:
+                await self.on_job(job)
+
+            job.state.last_status = "ok"
+            job.state.last_error = None
+            logger.info("Cron: job '{}' completed", job.name)
+
+        except Exception as e:
+            job.state.last_status = "error"
+            job.state.last_error = str(e)
+            logger.error("Cron: job '{}' failed: {}", job.name, e)
+
+        end_ms = _now_ms()
+        job.state.last_run_at_ms = start_ms
+        job.updated_at_ms = end_ms
+
+        job.state.run_history.append(CronRunRecord(
+            run_at_ms=start_ms,
+            status=job.state.last_status,
+            duration_ms=end_ms - start_ms,
+            error=job.state.last_error,
+        ))
+        job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY:]
+
+        # Handle one-shot jobs
+        if job.schedule.kind == "at":
+            if job.delete_after_run:
+                self._store.jobs = [j for j in self._store.jobs if j.id != job.id]
+            else:
+                job.enabled = False
+                job.state.next_run_at_ms = None
+        else:
+            # Compute next run
+            job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+
+    # ========== Public API ==========
+
+    def list_jobs(self, include_disabled: bool = False) -> list[CronJob]:
+        """List all jobs."""
+        store = self._load_store()
+        jobs = store.jobs if include_disabled else [j for j in store.jobs if j.enabled]
+        return sorted(jobs, key=lambda j: j.state.next_run_at_ms or float('inf'))
+
+    def add_job(
+        self,
+        name: str,
+        schedule: CronSchedule,
+        message: str,
+        deliver: bool = False,
+        channel: str | None = None,
+        to: str | None = None,
+        delete_after_run: bool = False,
+    ) -> CronJob:
+        """Add a new job."""
+        store = self._load_store()
+        _validate_schedule_for_add(schedule)
+        now = _now_ms()
+
+        job = CronJob(
+            id=str(uuid.uuid4())[:8],
+            name=name,
+            enabled=True,
+            schedule=schedule,
+            payload=CronPayload(
+                kind="agent_turn",
+                message=message,
+                deliver=deliver,
+                channel=channel,
+                to=to,
+            ),
+            state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now)),
+            created_at_ms=now,
+            updated_at_ms=now,
+            delete_after_run=delete_after_run,
+        )
+
+        store.jobs.append(job)
+        self._save_store()
+        self._arm_timer()
+
+        logger.info("Cron: added job '{}' ({})", name, job.id)
+        return job
+
+    def remove_job(self, job_id: str) -> bool:
+        """Remove a job by ID."""
+        store = self._load_store()
+        before = len(store.jobs)
+        store.jobs = [j for j in store.jobs if j.id != job_id]
+        removed = len(store.jobs) < before
+
+        if removed:
+            self._save_store()
+            self._arm_timer()
+            logger.info("Cron: removed job {}", job_id)
+
+        return removed
+
+    def enable_job(self, job_id: str, enabled: bool = True) -> CronJob | None:
+        """Enable or disable a job."""
+        store = self._load_store()
+        for job in store.jobs:
+            if job.id == job_id:
+                job.enabled = enabled
+                job.updated_at_ms = _now_ms()
+                if enabled:
+                    job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+                else:
+                    job.state.next_run_at_ms = None
+                self._save_store()
+                self._arm_timer()
+                return job
+        return None
+
+    async def run_job(self, job_id: str, force: bool = False) -> bool:
+        """Manually run a job."""
+        store = self._load_store()
+        for job in store.jobs:
+            if job.id == job_id:
+                if not force and not job.enabled:
+                    return False
+                await self._execute_job(job)
+                self._save_store()
+                self._arm_timer()
+                return True
+        return False
+
+    def get_job(self, job_id: str) -> CronJob | None:
+        """Get a job by ID."""
+        store = self._load_store()
+        return next((j for j in store.jobs if j.id == job_id), None)
+
+    def bootstrap_default_jobs(self, channels_config: Any | None = None) -> None:
+        """Create built-in default jobs if they don't already exist.
+
+        Called once at gateway startup. Idempotent — skips jobs whose name
+        already appears in the store (including disabled ones).
+
+        *channels_config* is the ``ChannelsConfig`` object from the user's
+        config.  When provided, the intent-notification job is wired to the
+        first Telegram ``allow_from`` chat ID automatically.
+        """
+        store = self._load_store()
+        existing_names = {j.name for j in store.jobs}
+
+        if DAILY_CONSOLIDATION_NAME not in existing_names:
+            self.add_job(
+                name=DAILY_CONSOLIDATION_NAME,
+                schedule=CronSchedule(kind="cron", expr="0 4 * * *"),
+                message=DAILY_CONSOLIDATION_PROMPT,
+                deliver=False,
+            )
+            logger.info("Cron: bootstrapped default job '{}'", DAILY_CONSOLIDATION_NAME)
+
+        if INTENT_NOTIFICATIONS_NAME not in existing_names:
+            # Resolve Telegram target from channels config
+            tg_target: str | None = None
+            if channels_config is not None:
+                tg_cfg = getattr(channels_config, "telegram", None)
+                if isinstance(tg_cfg, dict):
+                    allow = tg_cfg.get("allowFrom") or tg_cfg.get("allow_from") or []
+                    if allow:
+                        tg_target = str(allow[0])
+                elif tg_cfg is not None:
+                    allow = getattr(tg_cfg, "allow_from", None) or []
+                    if allow:
+                        tg_target = str(allow[0])
+
+            if tg_target:
+                self.add_job(
+                    name=INTENT_NOTIFICATIONS_NAME,
+                    schedule=CronSchedule(kind="every", every_ms=300_000),
+                    message=INTENT_NOTIFICATIONS_PROMPT,
+                    deliver=False,
+                    channel="telegram",
+                    to=tg_target,
+                )
+                logger.info(
+                    "Cron: bootstrapped default job '{}' -> telegram:{}",
+                    INTENT_NOTIFICATIONS_NAME,
+                    tg_target,
+                )
+            else:
+                logger.debug(
+                    "Cron: skipped '{}' — no Telegram allow_from configured",
+                    INTENT_NOTIFICATIONS_NAME,
+                )
+
+    def status(self) -> dict:
+        """Get service status."""
+        store = self._load_store()
+        return {
+            "enabled": self._running,
+            "jobs": len(store.jobs),
+            "next_wake_at_ms": self._get_next_wake_ms(),
+        }

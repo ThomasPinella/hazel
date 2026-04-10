@@ -1,0 +1,3326 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Hazel Canvas</title>
+  <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; }
+    
+    body { 
+      background: #0f0f1a; 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      color: #e0e0e0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+
+    /* Top Navigation */
+    #nav {
+      display: flex;
+      align-items: center;
+      padding: 0 24px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border-bottom: 1px solid #2a2a4a;
+      height: 56px;
+      flex-shrink: 0;
+    }
+
+    #nav-brand {
+      font-size: 20px;
+      font-weight: 600;
+      color: #e94560;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-right: 40px;
+    }
+
+    #nav-tabs {
+      display: flex;
+      gap: 4px;
+      height: 100%;
+    }
+
+    .nav-tab {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 20px;
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    .nav-tab:hover {
+      color: #e0e0e0;
+      background: rgba(255,255,255,0.03);
+    }
+
+    .nav-tab.active {
+      color: #e0e0e0;
+      border-bottom-color: #e94560;
+    }
+
+    .nav-tab-icon {
+      font-size: 16px;
+    }
+
+    #nav-right {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    #nav-status {
+      font-size: 12px;
+      color: #4ade80;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #nav-status::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      background: #4ade80;
+      border-radius: 50%;
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    /* Tab content */
+    .tab-content {
+      display: none;
+      flex: 1;
+      overflow: hidden;
+      min-height: 0;
+    }
+
+    .tab-content.active {
+      display: flex;
+      flex-direction: column;
+      height: calc(100vh - 56px);
+    }
+
+    /* ==================== */
+    /* ENTITIES TAB STYLES  */
+    /* ==================== */
+
+    #entities-header {
+      padding: 12px 24px;
+      background: #12121f;
+      border-bottom: 1px solid #2a2a4a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    #entities-stats {
+      font-size: 13px;
+      color: #888;
+    }
+
+    #entities-controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .search-input {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 8px 14px;
+      color: #e0e0e0;
+      font-size: 14px;
+      width: 200px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: #e94560;
+    }
+
+    .search-input::placeholder {
+      color: #666;
+    }
+
+    .filter-btn {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      padding: 6px 12px;
+      color: #888;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-btn:hover {
+      border-color: #4a4a6a;
+      color: #e0e0e0;
+    }
+
+    .filter-btn.active {
+      background: #2a2a4a;
+      border-color: #e94560;
+      color: #e0e0e0;
+    }
+
+    #graph-container {
+      flex: 1;
+      position: relative;
+      min-height: 0;
+    }
+
+    #graph {
+      width: 100%;
+      height: 100%;
+      min-height: 500px;
+      background: radial-gradient(ellipse at center, #1a1a2e 0%, #0f0f1a 100%);
+    }
+
+    #legend {
+      position: absolute;
+      bottom: 20px;
+      left: 20px;
+      background: rgba(22, 33, 62, 0.95);
+      padding: 14px 18px;
+      border-radius: 10px;
+      font-size: 12px;
+      display: flex;
+      gap: 18px;
+      backdrop-filter: blur(10px);
+      border: 1px solid #2a2a4a;
+    }
+
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    .legend-item:hover {
+      opacity: 0.7;
+    }
+
+    .legend-dot {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      box-shadow: 0 0 10px currentColor;
+    }
+
+    /* ==================== */
+    /* INTENTS TAB STYLES   */
+    /* ==================== */
+
+    #intents-header {
+      padding: 12px 24px;
+      background: #12121f;
+      border-bottom: 1px solid #2a2a4a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+      gap: 16px;
+    }
+
+    #intents-stats {
+      font-size: 13px;
+      color: #888;
+      display: flex;
+      gap: 16px;
+    }
+
+    .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-value {
+      color: #e0e0e0;
+      font-weight: 500;
+    }
+
+    .stat-value.overdue { color: #ef4444; }
+    .stat-value.upcoming { color: #facc15; }
+
+    #intents-controls {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .refresh-btn {
+      background: none;
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      padding: 6px 10px;
+      color: #888;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-size: 14px;
+    }
+
+    .refresh-btn:hover {
+      border-color: #4a4a6a;
+      color: #e0e0e0;
+    }
+
+    #intents-list-view #intents-filters {
+      padding: 10px 24px;
+      background: #0f0f1a;
+      border-bottom: 1px solid #2a2a4a;
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    #intents-list-view #intents-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 24px;
+    }
+
+    .filter-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .filter-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #666;
+    }
+
+    #intents-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    #intents-table th {
+      text-align: left;
+      padding: 12px 16px;
+      background: #1a1a2e;
+      border-bottom: 2px solid #2a2a4a;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #888;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+
+    #intents-table th.sortable {
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #intents-table th.sortable:hover { color: #e0e0e0; }
+
+    #intents-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid #1a1a2e;
+      vertical-align: top;
+    }
+
+    #intents-table tr { cursor: pointer; transition: background 0.15s; }
+    #intents-table tr:hover { background: #1a1a2e; }
+    #intents-table tr.selected { background: #1e2a4a; }
+
+    .status-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .status-active { background: #166534; color: #4ade80; }
+    .status-done { background: #1e3a5f; color: #60a5fa; }
+    .status-snoozed { background: #713f12; color: #facc15; }
+    .status-canceled { background: #3f3f46; color: #a1a1aa; }
+
+    .type-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      background: #2a2a4a;
+    }
+
+    .type-task { color: #60a5fa; }
+    .type-reminder { color: #c084fc; }
+    .type-event { color: #4ade80; }
+    .type-followup { color: #facc15; }
+
+    .intent-title { font-weight: 500; color: #e0e0e0; margin-bottom: 4px; }
+    .intent-body { font-size: 12px; color: #888; max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .date-cell { font-size: 13px; color: #aaa; }
+    .date-cell.overdue { color: #ef4444; font-weight: 500; }
+    .date-cell.soon { color: #facc15; }
+    .date-relative { font-size: 11px; color: #666; margin-top: 2px; }
+
+    .links-count {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      background: #1a1a2e;
+      border-radius: 10px;
+      font-size: 11px;
+      color: #60a5fa;
+    }
+
+    /* Debug table styles */
+    #intents-table.debug-table {
+      border: 1px solid #e94560;
+    }
+    
+    #intents-table.debug-table th {
+      background: #2a1a2e;
+      font-size: 10px;
+      padding: 8px 6px;
+      white-space: nowrap;
+    }
+    
+    #intents-table.debug-table td {
+      padding: 8px 6px;
+      border-bottom: 1px solid #1a1a2e;
+    }
+    
+    #debug-toggle.active {
+      background: #e9456040;
+      border-color: #e94560;
+      color: #e94560;
+    }
+
+    /* ==================== */
+    /* SIDE PANEL           */
+    /* ==================== */
+
+    #panel {
+      position: fixed;
+      top: 0;
+      right: -520px;
+      width: 500px;
+      height: 100vh;
+      background: #12121f;
+      border-left: 1px solid #2a2a4a;
+      display: flex;
+      flex-direction: column;
+      transition: right 0.3s ease;
+      z-index: 200;
+    }
+
+    #panel.open { right: 0; }
+
+    .panel-open #entities-tab,
+    .panel-open #intents-tab {
+      margin-right: 500px;
+    }
+
+    #panel-header {
+      padding: 16px 20px;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      border-bottom: 1px solid #2a2a4a;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-shrink: 0;
+    }
+
+    #panel-title { font-size: 18px; font-weight: 600; color: #fff; max-width: 400px; }
+    #panel-meta { display: flex; gap: 8px; margin-top: 8px; align-items: center; }
+
+    #panel-close {
+      background: none;
+      border: none;
+      color: #888;
+      font-size: 24px;
+      cursor: pointer;
+      padding: 8px;
+      margin: -8px;
+      line-height: 1;
+      transition: color 0.2s;
+    }
+
+    #panel-close:hover { color: #e94560; }
+
+    #panel-back {
+      display: none;
+      background: none;
+      border: none;
+      color: #60a5fa;
+      font-size: 14px;
+      cursor: pointer;
+      padding: 0;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 768px) {
+      #panel-back {
+        display: block;
+      }
+    }
+
+    #panel-gist {
+      padding: 14px 20px;
+      background: #1a1a2e;
+      border-bottom: 1px solid #2a2a4a;
+      font-size: 13px;
+      color: #aaa;
+      line-height: 1.5;
+    }
+
+    #panel-gist:empty { display: none; }
+
+    #panel-dates {
+      padding: 14px 20px;
+      background: #1a1a2e;
+      border-bottom: 1px solid #2a2a4a;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    #panel-dates:empty { display: none; }
+
+    .date-item { font-size: 12px; }
+    .date-item label { display: block; color: #666; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+    .date-item .value { color: #e0e0e0; }
+
+    #panel-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 10px 20px;
+      border-bottom: 1px solid #2a2a4a;
+    }
+
+    #panel-tags:empty { display: none; }
+
+    .tag {
+      background: #1a1a2e;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 11px;
+      color: #888;
+    }
+
+    #panel-links {
+      padding: 14px 20px;
+      background: #151525;
+      border-bottom: 1px solid #2a2a4a;
+    }
+
+    #panel-links:empty { display: none; }
+
+    #panel-links h4 {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    .link-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 0;
+      font-size: 13px;
+      cursor: pointer;
+      color: #aaa;
+      transition: color 0.2s;
+    }
+
+    .link-item:hover { color: #60a5fa; }
+    .link-rel { color: #666; font-size: 11px; }
+    .link-target { color: #60a5fa; }
+
+    .link-card {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: border-color 0.2s;
+    }
+
+    .link-card:hover { border-color: #60a5fa; }
+    .link-card-title { font-weight: 500; color: #60a5fa; margin-bottom: 4px; }
+    .link-card-path { font-size: 11px; color: #666; }
+    .link-card-gist { font-size: 12px; color: #888; margin-top: 6px; line-height: 1.4; }
+
+    #panel-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    /* Markdown rendering */
+    #panel-content h1 { font-size: 20px; color: #e94560; margin: 0 0 14px 0; border-bottom: 1px solid #2a2a4a; padding-bottom: 8px; }
+    #panel-content h2 { font-size: 16px; color: #60a5fa; margin: 20px 0 10px 0; }
+    #panel-content h3 { font-size: 14px; color: #c084fc; margin: 16px 0 8px 0; }
+    #panel-content p { margin: 0 0 10px 0; line-height: 1.6; color: #ccc; }
+    #panel-content ul, #panel-content ol { margin: 0 0 10px 18px; color: #ccc; }
+    #panel-content li { margin: 3px 0; line-height: 1.5; }
+    #panel-content code { background: #1a1a2e; padding: 2px 5px; border-radius: 3px; font-size: 12px; color: #4ade80; }
+    #panel-content pre { background: #1a1a2e; padding: 12px; border-radius: 6px; overflow-x: auto; margin: 10px 0; }
+    #panel-content pre code { padding: 0; background: none; }
+    #panel-content blockquote { border-left: 3px solid #e94560; padding-left: 12px; margin: 10px 0; color: #aaa; }
+    #panel-content a { color: #60a5fa; text-decoration: none; }
+    #panel-content a:hover { text-decoration: underline; }
+    #panel-content hr { border: none; border-top: 1px solid #2a2a4a; margin: 16px 0; }
+
+    /* Loading */
+    .loading-container {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #888;
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid #2a2a4a;
+      border-top-color: #e94560;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-bottom: 16px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+
+    .empty-state-icon { font-size: 48px; margin-bottom: 16px; }
+
+    /* Tooltip */
+    .vis-tooltip {
+      background: rgba(22, 33, 62, 0.95) !important;
+      border: 1px solid #2a2a4a !important;
+      border-radius: 8px !important;
+      padding: 10px 14px !important;
+      color: #e0e0e0 !important;
+      font-size: 13px !important;
+      max-width: 300px !important;
+    }
+
+    /* ==================== */
+    /* CALENDAR STYLES      */
+    /* ==================== */
+
+    #intents-subtabs {
+      display: flex;
+      gap: 8px;
+    }
+
+    .intents-subtab {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 8px 16px;
+      color: #888;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .intents-subtab:hover {
+      border-color: #4a4a6a;
+      color: #e0e0e0;
+    }
+
+    .intents-subtab.active {
+      background: #2a2a4a;
+      border-color: #e94560;
+      color: #e0e0e0;
+    }
+
+    .intents-view {
+      display: none;
+      flex: 1;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .intents-view.active {
+      display: flex;
+    }
+
+    #calendar-toolbar {
+      padding: 12px 24px;
+      background: #12121f;
+      border-bottom: 1px solid #2a2a4a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    #calendar-nav {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .cal-btn {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      padding: 8px 14px;
+      color: #e0e0e0;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .cal-btn:hover {
+      background: #2a2a4a;
+      border-color: #4a4a6a;
+    }
+
+    #cal-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #e0e0e0;
+      margin-left: 12px;
+    }
+
+    #calendar-view-btns {
+      display: flex;
+      gap: 4px;
+      background: #1a1a2e;
+      border-radius: 8px;
+      padding: 4px;
+    }
+
+    #calendar-tz {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    #cal-tz-select {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 6px;
+      padding: 8px 12px;
+      color: #e0e0e0;
+      font-size: 12px;
+      cursor: pointer;
+      outline: none;
+    }
+
+    #cal-tz-select:hover {
+      border-color: #4a4a6a;
+    }
+
+    #cal-tz-select option {
+      background: #1a1a2e;
+      color: #e0e0e0;
+    }
+
+    .cal-view-btn {
+      background: none;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      color: #888;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .cal-view-btn:hover {
+      color: #e0e0e0;
+    }
+
+    .cal-view-btn.active {
+      background: #2a2a4a;
+      color: #e0e0e0;
+    }
+
+    #calendar-container {
+      flex: 1;
+      overflow: hidden;
+      padding: 16px 24px;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Month View */
+    #calendar-month {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 1px;
+      background: #2a2a4a;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      overflow-y: auto;
+      flex: 1;
+    }
+
+    .cal-header-cell {
+      background: #1a1a2e;
+      padding: 12px 8px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      color: #888;
+      text-transform: uppercase;
+    }
+
+    .cal-day-cell {
+      background: #12121f;
+      min-height: 100px;
+      padding: 8px;
+      vertical-align: top;
+      transition: background 0.15s;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .cal-day-cell:hover {
+      background: #1a1a2e;
+    }
+
+    .cal-day-cell.other-month {
+      background: #0f0f1a;
+    }
+
+    .cal-day-cell.other-month .cal-day-num {
+      color: #444;
+    }
+
+    .cal-day-cell.today {
+      background: #1a2a3a;
+    }
+
+    .cal-day-cell.today .cal-day-num {
+      background: #e94560;
+      color: #fff;
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cal-day-num {
+      font-size: 14px;
+      font-weight: 500;
+      color: #e0e0e0;
+      margin-bottom: 6px;
+    }
+
+    .cal-event {
+      background: #166534;
+      color: #4ade80;
+      padding: 3px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-bottom: 3px;
+      cursor: pointer;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: transform 0.1s;
+    }
+
+    .cal-event:hover {
+      transform: scale(1.02);
+    }
+
+    .cal-event.done {
+      background: #1f2937;
+      color: #6b7280;
+      opacity: 0.7;
+    }
+
+    .cal-event-more {
+      color: #888;
+      font-size: 11px;
+      padding: 2px 6px;
+      cursor: pointer;
+    }
+
+    .cal-event-more:hover {
+      color: #e0e0e0;
+    }
+
+    /* Week View */
+    #calendar-week {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0; /* Important for flex children to shrink and scroll */
+    }
+
+    .cal-week-header {
+      display: grid;
+      grid-template-columns: 60px repeat(7, 1fr);
+      border-bottom: 1px solid #2a2a4a;
+      flex-shrink: 0;
+    }
+
+    .cal-week-header-cell {
+      padding: 12px 8px;
+      text-align: center;
+      background: #1a1a2e;
+      border-left: 1px solid #2a2a4a;
+    }
+
+    .cal-week-header-cell:first-child {
+      border-left: none;
+    }
+
+    .cal-week-day-name {
+      font-size: 11px;
+      color: #888;
+      text-transform: uppercase;
+    }
+
+    .cal-week-day-num {
+      font-size: 20px;
+      font-weight: 600;
+      color: #e0e0e0;
+      margin-top: 4px;
+    }
+
+    .cal-week-header-cell.today .cal-week-day-num {
+      background: #e94560;
+      color: #fff;
+      border-radius: 50%;
+      width: 36px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .cal-week-body {
+      display: grid;
+      grid-template-columns: 60px repeat(7, 1fr);
+      grid-template-rows: 1152px; /* 24 hours * 48px */
+      flex: 1;
+      min-height: 0; /* Allow shrinking for scroll */
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .cal-time-column {
+      background: #1a1a2e;
+    }
+
+    .cal-time-slot {
+      height: 48px;
+      padding: 4px 8px;
+      font-size: 11px;
+      color: #666;
+      text-align: right;
+      border-bottom: 1px solid #1f1f2f;
+    }
+
+    .cal-day-column {
+      position: relative;
+      border-left: 1px solid #2a2a4a;
+      /* Height determined by grid-template-rows on parent */
+    }
+
+    .cal-hour-line {
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: #1f1f2f;
+    }
+
+    .cal-hour-line.half {
+      background: #181828;
+    }
+
+    .cal-time-event {
+      position: absolute;
+      left: 2px;
+      right: 2px;
+      background: #166534;
+      border-left: 3px solid #4ade80;
+      border-radius: 4px;
+      padding: 4px 6px;
+      font-size: 11px;
+      color: #4ade80;
+      overflow: hidden;
+      cursor: pointer;
+      z-index: 1;
+      transition: transform 0.1s, box-shadow 0.1s;
+    }
+
+    .cal-time-event:hover {
+      transform: scale(1.02);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      z-index: 10;
+    }
+
+    .cal-time-event.done {
+      background: #1f2937;
+      border-left-color: #4b5563;
+      color: #6b7280;
+      opacity: 0.7;
+    }
+
+    .cal-time-event.task {
+      background: #1e3a5f;
+      border-left-color: #60a5fa;
+      color: #60a5fa;
+    }
+
+    .cal-time-event.task .cal-time-event-time {
+      color: #93c5fd;
+    }
+
+    .cal-time-event.reminder {
+      background: #3b1f5e;
+      border-left-color: #c084fc;
+      color: #c084fc;
+    }
+
+    .cal-time-event.reminder .cal-time-event-time {
+      color: #d8b4fe;
+    }
+
+    .cal-event.task {
+      background: #1e3a5f;
+      color: #60a5fa;
+    }
+
+    .cal-event.reminder {
+      background: #3b1f5e;
+      color: #c084fc;
+    }
+
+    .cal-time-event-title {
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .cal-time-event-time {
+      font-size: 10px;
+      color: #6ee7a0;
+      margin-top: 2px;
+    }
+
+    /* Overlapping events */
+    .cal-time-event.overlap-1 { width: calc(50% - 4px); }
+    .cal-time-event.overlap-2 { width: calc(50% - 4px); left: calc(50% + 2px); }
+    .cal-time-event.overlap-3 { width: calc(33.33% - 4px); }
+    .cal-time-event.overlap-4 { width: calc(33.33% - 4px); left: calc(33.33% + 2px); }
+    .cal-time-event.overlap-5 { width: calc(33.33% - 4px); left: calc(66.66% + 2px); }
+
+    /* Day View */
+    #calendar-day {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0; /* Important for flex children to shrink and scroll */
+    }
+
+    .cal-day-header {
+      padding: 16px 24px;
+      background: #1a1a2e;
+      border-bottom: 1px solid #2a2a4a;
+      text-align: center;
+      flex-shrink: 0;
+    }
+
+    .cal-day-header-date {
+      font-size: 14px;
+      color: #888;
+      text-transform: uppercase;
+    }
+
+    .cal-day-header-num {
+      font-size: 36px;
+      font-weight: 600;
+      color: #e0e0e0;
+      margin-top: 4px;
+    }
+
+    .cal-day-header.today .cal-day-header-num {
+      color: #e94560;
+    }
+
+    .cal-day-body {
+      display: grid;
+      grid-template-columns: 60px 1fr;
+      grid-template-rows: 1152px; /* 24 hours * 48px */
+      flex: 1;
+      min-height: 0; /* Allow shrinking for scroll */
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    /* ==================== */
+    /* MEMORY TAB STYLES    */
+    /* ==================== */
+
+    #memory-header {
+      padding: 12px 24px;
+      background: #12121f;
+      border-bottom: 1px solid #2a2a4a;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-shrink: 0;
+    }
+
+    #memory-subtabs {
+      display: flex;
+      gap: 8px;
+    }
+
+    .memory-subtab {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 8px;
+      padding: 10px 18px;
+      color: #888;
+      font-size: 14px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .memory-subtab:hover {
+      border-color: #4a4a6a;
+      color: #e0e0e0;
+    }
+
+    .memory-subtab.active {
+      background: #2a2a4a;
+      border-color: #e94560;
+      color: #e0e0e0;
+    }
+
+    #memory-stats {
+      font-size: 13px;
+      color: #888;
+    }
+
+    #memory-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+
+    .memory-view {
+      display: none;
+    }
+
+    .memory-view.active {
+      display: block;
+    }
+
+    /* Daily Logs */
+    .daily-log-item {
+      background: #1a1a2e;
+      border: 1px solid #2a2a4a;
+      border-radius: 10px;
+      margin-bottom: 12px;
+      overflow: hidden;
+      transition: border-color 0.2s;
+    }
+
+    .daily-log-item:hover {
+      border-color: #3a3a5a;
+    }
+
+    .daily-log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 18px;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .daily-log-header:hover {
+      background: rgba(255,255,255,0.02);
+    }
+
+    .daily-log-date {
+      font-weight: 600;
+      color: #e0e0e0;
+      font-size: 15px;
+    }
+
+    .daily-log-date-relative {
+      font-size: 12px;
+      color: #666;
+      margin-left: 10px;
+      font-weight: 400;
+    }
+
+    .daily-log-meta {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .daily-log-size {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .daily-log-toggle {
+      color: #888;
+      font-size: 18px;
+      transition: transform 0.2s;
+    }
+
+    .daily-log-item.expanded .daily-log-toggle {
+      transform: rotate(180deg);
+    }
+
+    .daily-log-content {
+      display: none;
+      padding: 0 18px 18px;
+      border-top: 1px solid #2a2a4a;
+    }
+
+    .daily-log-item.expanded .daily-log-content {
+      display: block;
+    }
+
+    .daily-log-content .markdown-body {
+      padding-top: 16px;
+    }
+
+    /* Long-term memory view */
+    #longterm-view .markdown-body {
+      max-width: 800px;
+    }
+
+    /* Shared markdown body styles */
+    .markdown-body {
+      color: #ccc;
+      line-height: 1.7;
+    }
+
+    .markdown-body h1 { font-size: 24px; color: #e94560; margin: 0 0 16px 0; padding-bottom: 8px; border-bottom: 1px solid #2a2a4a; }
+    .markdown-body h2 { font-size: 18px; color: #60a5fa; margin: 28px 0 12px 0; }
+    .markdown-body h3 { font-size: 15px; color: #c084fc; margin: 22px 0 10px 0; }
+    .markdown-body h4 { font-size: 14px; color: #4ade80; margin: 18px 0 8px 0; }
+    .markdown-body p { margin: 0 0 12px 0; }
+    .markdown-body ul, .markdown-body ol { margin: 0 0 12px 20px; }
+    .markdown-body li { margin: 4px 0; }
+    .markdown-body code { background: #0f0f1a; padding: 2px 6px; border-radius: 4px; font-size: 13px; color: #4ade80; }
+    .markdown-body pre { background: #0f0f1a; padding: 14px; border-radius: 8px; overflow-x: auto; margin: 14px 0; }
+    .markdown-body pre code { padding: 0; background: none; }
+    .markdown-body blockquote { border-left: 3px solid #e94560; padding-left: 14px; margin: 14px 0; color: #aaa; font-style: italic; }
+    .markdown-body a { color: #60a5fa; text-decoration: none; }
+    .markdown-body a:hover { text-decoration: underline; }
+    .markdown-body hr { border: none; border-top: 1px solid #2a2a4a; margin: 24px 0; }
+    .markdown-body strong { color: #e0e0e0; }
+    .markdown-body em { color: #bbb; }
+
+    /* Today highlight */
+    .daily-log-item.is-today {
+      border-color: #e94560;
+    }
+
+    .daily-log-item.is-today .daily-log-date {
+      color: #e94560;
+    }
+
+    /* ==================== */
+    /* MOBILE RESPONSIVE    */
+    /* ==================== */
+
+    @media (max-width: 768px) {
+      /* Navigation */
+      #nav {
+        padding: 0 12px;
+        height: 50px;
+      }
+
+      #nav-brand {
+        font-size: 16px;
+        margin-right: 16px;
+      }
+
+      .nav-tab {
+        padding: 0 12px;
+        font-size: 13px;
+      }
+
+      .nav-tab-icon {
+        font-size: 14px;
+      }
+
+      #nav-status {
+        display: none;
+      }
+
+      /* Tab content */
+      .tab-content.active {
+        height: calc(100vh - 50px);
+      }
+
+      /* Entities header */
+      #entities-header {
+        padding: 10px 12px;
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+      }
+
+      #entities-controls {
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      #entities-controls .search-input {
+        width: 100%;
+        order: -1;
+      }
+
+      #entities-controls .filter-btn {
+        flex: 1;
+        min-width: 60px;
+        text-align: center;
+        padding: 8px 6px;
+        font-size: 11px;
+      }
+
+      /* Legend */
+      #legend {
+        bottom: 10px;
+        left: 10px;
+        right: 10px;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 10px 12px;
+        font-size: 11px;
+        justify-content: center;
+      }
+
+      .legend-dot {
+        width: 10px;
+        height: 10px;
+      }
+
+      /* Intents header */
+      #intents-header {
+        padding: 10px 12px;
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+      }
+
+      #intents-stats {
+        flex-wrap: wrap;
+        gap: 12px;
+        font-size: 12px;
+      }
+
+      #intents-controls {
+        width: 100%;
+      }
+
+      #intents-controls .search-input {
+        flex: 1;
+      }
+
+      /* Intents filters */
+      #intents-filters {
+        padding: 10px 12px;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      .filter-group {
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .filter-group .filter-btn {
+        flex: 1;
+        min-width: 55px;
+        text-align: center;
+        padding: 8px 6px;
+        font-size: 11px;
+      }
+
+      .filter-label {
+        width: 100%;
+        margin-bottom: 4px;
+      }
+
+      /* Intents content */
+      #intents-content {
+        padding: 12px;
+      }
+
+      /* Table - convert to cards on mobile */
+      #intents-table {
+        display: block;
+      }
+
+      #intents-table thead {
+        display: none;
+      }
+
+      #intents-table tbody {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      #intents-table tr {
+        display: flex;
+        flex-direction: column;
+        background: #1a1a2e;
+        border-radius: 10px;
+        padding: 14px;
+        border: 1px solid #2a2a4a;
+      }
+
+      #intents-table tr:hover {
+        background: #1e2a4a;
+      }
+
+      #intents-table td {
+        padding: 4px 0;
+        border: none;
+      }
+
+      #intents-table td:first-child {
+        order: 2;
+      }
+
+      #intents-table td:nth-child(2) {
+        order: 3;
+      }
+
+      #intents-table td:nth-child(3) {
+        order: 1;
+        padding-bottom: 8px;
+      }
+
+      #intents-table td:nth-child(4) {
+        order: 4;
+      }
+
+      #intents-table td:nth-child(5) {
+        order: 5;
+        font-size: 11px;
+        color: #666;
+      }
+
+      #intents-table td:nth-child(6) {
+        order: 6;
+      }
+
+      .intent-title {
+        font-size: 15px;
+      }
+
+      .intent-body {
+        white-space: normal;
+        max-width: none;
+      }
+
+      /* Mobile card row layout */
+      #intents-table td:first-child,
+      #intents-table td:nth-child(2) {
+        display: inline-block;
+        margin-right: 8px;
+      }
+
+      /* Calendar mobile */
+      #intents-header {
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      #intents-subtabs {
+        order: -1;
+        width: 100%;
+      }
+
+      .intents-subtab {
+        flex: 1;
+        text-align: center;
+      }
+
+      #calendar-toolbar {
+        padding: 10px 12px;
+        flex-direction: column;
+        gap: 10px;
+      }
+
+      #calendar-nav {
+        width: 100%;
+        justify-content: space-between;
+      }
+
+      #cal-title {
+        font-size: 15px;
+        margin-left: 0;
+        order: -1;
+        width: 100%;
+        text-align: center;
+        margin-bottom: 8px;
+      }
+
+      #calendar-view-btns {
+        width: 100%;
+        justify-content: center;
+      }
+
+      #calendar-tz {
+        width: 100%;
+        justify-content: center;
+      }
+
+      #cal-tz-select {
+        width: 100%;
+        text-align: center;
+      }
+
+      .cal-view-btn {
+        flex: 1;
+        padding: 10px 8px;
+        font-size: 12px;
+      }
+
+      #calendar-container {
+        padding: 12px;
+      }
+
+      .cal-day-cell {
+        min-height: 70px;
+        padding: 4px;
+      }
+
+      .cal-day-num {
+        font-size: 12px;
+      }
+
+      .cal-event {
+        font-size: 10px;
+        padding: 2px 4px;
+      }
+
+      .cal-header-cell {
+        padding: 8px 4px;
+        font-size: 10px;
+      }
+
+      /* Week view mobile - switch to 3-day view would be ideal but keep simple for now */
+      .cal-week-header-cell {
+        padding: 8px 4px;
+      }
+
+      .cal-week-day-name {
+        font-size: 9px;
+      }
+
+      .cal-week-day-num {
+        font-size: 14px;
+      }
+
+      .cal-time-slot {
+        font-size: 9px;
+        padding: 2px 4px;
+      }
+
+      .cal-time-event {
+        font-size: 9px;
+        padding: 2px 4px;
+      }
+
+      /* Mobile: extra padding for browser chrome/safe area */
+      .cal-week-body,
+      .cal-day-body {
+        grid-template-rows: 1232px; /* 1152px + 80px buffer */
+      }
+
+      /* Memory tab mobile */
+      #memory-header {
+        padding: 10px 12px;
+        flex-direction: column;
+        gap: 10px;
+        align-items: stretch;
+      }
+
+      #memory-subtabs {
+        width: 100%;
+      }
+
+      .memory-subtab {
+        flex: 1;
+        text-align: center;
+        padding: 10px 12px;
+        font-size: 13px;
+      }
+
+      #memory-stats {
+        text-align: center;
+        font-size: 12px;
+      }
+
+      #memory-content {
+        padding: 12px;
+      }
+
+      .daily-log-header {
+        padding: 12px 14px;
+      }
+
+      .daily-log-date {
+        font-size: 14px;
+      }
+
+      .daily-log-date-relative {
+        display: block;
+        margin-left: 0;
+        margin-top: 2px;
+      }
+
+      .daily-log-content {
+        padding: 0 14px 14px;
+      }
+
+      .markdown-body h1 { font-size: 20px; }
+      .markdown-body h2 { font-size: 16px; }
+      .markdown-body h3 { font-size: 14px; }
+      .markdown-body p, .markdown-body li { font-size: 14px; }
+
+      /* Side Panel - full screen on mobile */
+      #panel {
+        width: 100%;
+        right: -100%;
+      }
+
+      .panel-open #entities-tab,
+      .panel-open #intents-tab {
+        margin-right: 0;
+        display: none;
+      }
+
+      #panel-header {
+        padding: 14px 16px;
+      }
+
+      #panel-title {
+        font-size: 16px;
+        max-width: calc(100vw - 80px);
+      }
+
+      #panel-gist {
+        padding: 12px 16px;
+        font-size: 13px;
+      }
+
+      #panel-dates {
+        padding: 12px 16px;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+      }
+
+      #panel-tags {
+        padding: 10px 16px;
+      }
+
+      #panel-links {
+        padding: 12px 16px;
+      }
+
+      #panel-content {
+        padding: 16px;
+      }
+
+      #panel-content h1 { font-size: 18px; }
+      #panel-content h2 { font-size: 15px; }
+      #panel-content h3 { font-size: 14px; }
+      #panel-content p, #panel-content li { font-size: 14px; }
+    }
+
+    /* Extra small screens */
+    @media (max-width: 400px) {
+      #nav-brand {
+        font-size: 14px;
+        margin-right: 10px;
+      }
+
+      .nav-tab {
+        padding: 0 8px;
+      }
+
+      .nav-tab span:not(.nav-tab-icon) {
+        display: none;
+      }
+
+      #entities-controls .filter-btn,
+      .filter-group .filter-btn {
+        font-size: 10px;
+        padding: 6px 4px;
+      }
+
+      #legend {
+        font-size: 10px;
+        gap: 8px;
+      }
+    }
+
+    /* Touch-friendly tap targets */
+    @media (pointer: coarse) {
+      .filter-btn {
+        min-height: 40px;
+      }
+
+      .nav-tab {
+        min-height: 50px;
+      }
+
+      #intents-table tr {
+        padding: 16px;
+      }
+
+      .link-card {
+        padding: 14px;
+      }
+
+      .link-item {
+        padding: 10px 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- Top Navigation -->
+  <nav id="nav">
+    <div id="nav-brand">Hazel</div>
+    <div id="nav-tabs">
+      <button class="nav-tab active" data-tab="entities">
+        <span class="nav-tab-icon">🕸️</span>
+        <span>Entities</span>
+      </button>
+      <button class="nav-tab" data-tab="intents">
+        <span class="nav-tab-icon">🎯</span>
+        <span>Intents</span>
+      </button>
+      <button class="nav-tab" data-tab="memory">
+        <span class="nav-tab-icon">📝</span>
+        <span>Memory</span>
+      </button>
+    </div>
+    <div id="nav-right">
+      <div id="nav-status">Live</div>
+    </div>
+  </nav>
+
+  <!-- Entities Tab -->
+  <div id="entities-tab" class="tab-content active">
+    <div id="entities-header">
+      <div id="entities-stats">Loading...</div>
+      <div id="entities-controls">
+        <input type="text" id="entities-search" class="search-input" placeholder="Search entities..." />
+        <button class="filter-btn active" data-type="all">All</button>
+        <button class="filter-btn" data-type="person">People</button>
+        <button class="filter-btn" data-type="place">Places</button>
+        <button class="filter-btn" data-type="project">Projects</button>
+        <button class="filter-btn" data-type="domain">Domains</button>
+        <button class="filter-btn" data-type="resource">Resources</button>
+        <button class="filter-btn" data-type="system">Systems</button>
+      </div>
+    </div>
+    <div id="graph-container">
+      <div id="graph"></div>
+      <div id="legend">
+        <div class="legend-item" data-type="person"><div class="legend-dot" style="background:#4ade80; color:#4ade80"></div> person</div>
+        <div class="legend-item" data-type="place"><div class="legend-dot" style="background:#f97316; color:#f97316"></div> place</div>
+        <div class="legend-item" data-type="project"><div class="legend-dot" style="background:#22d3d1; color:#22d3d1"></div> project</div>
+        <div class="legend-item" data-type="domain"><div class="legend-dot" style="background:#60a5fa; color:#60a5fa"></div> domain</div>
+        <div class="legend-item" data-type="resource"><div class="legend-dot" style="background:#facc15; color:#facc15"></div> resource</div>
+        <div class="legend-item" data-type="system"><div class="legend-dot" style="background:#c084fc; color:#c084fc"></div> system</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Intents Tab -->
+  <div id="intents-tab" class="tab-content">
+    <div id="intents-header">
+      <div id="intents-subtabs">
+        <button class="intents-subtab active" data-subtab="list">📋 List</button>
+        <button class="intents-subtab" data-subtab="calendar">📅 Calendar</button>
+      </div>
+      <div id="intents-stats">
+        <div class="stat-item"><span>Total:</span> <span class="stat-value" id="stat-total">-</span></div>
+        <div class="stat-item"><span>Overdue:</span> <span class="stat-value overdue" id="stat-overdue">-</span></div>
+        <div class="stat-item"><span>Next 7 days:</span> <span class="stat-value upcoming" id="stat-upcoming">-</span></div>
+      </div>
+      <div id="intents-controls">
+        <input type="text" id="intents-search" class="search-input" placeholder="Search intents..." />
+        <button id="intents-refresh" class="refresh-btn" title="Refresh">↻</button>
+      </div>
+    </div>
+    
+    <!-- List View -->
+    <div id="intents-list-view" class="intents-view active">
+      <div id="intents-filters">
+        <div class="filter-group">
+          <span class="filter-label">Status:</span>
+          <button class="filter-btn active" data-filter="status" data-value="all">All</button>
+          <button class="filter-btn" data-filter="status" data-value="active">Active</button>
+          <button class="filter-btn" data-filter="status" data-value="snoozed">Snoozed</button>
+          <button class="filter-btn" data-filter="status" data-value="done">Done</button>
+          <button class="filter-btn" data-filter="status" data-value="canceled">Canceled</button>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Type:</span>
+          <button class="filter-btn active" data-filter="type" data-value="all">All</button>
+          <button class="filter-btn" data-filter="type" data-value="task">Task</button>
+          <button class="filter-btn" data-filter="type" data-value="reminder">Reminder</button>
+          <button class="filter-btn" data-filter="type" data-value="event">Event</button>
+          <button class="filter-btn" data-filter="type" data-value="followup">Followup</button>
+        </div>
+        <div class="filter-group" style="margin-left: auto;">
+          <button id="debug-toggle" class="filter-btn" title="Show all SQL columns">🐛 Debug</button>
+        </div>
+      </div>
+      <div id="intents-content">
+        <div class="loading-container">
+          <div class="spinner"></div>
+          <div>Loading intents...</div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Calendar View -->
+    <div id="intents-calendar-view" class="intents-view">
+      <div id="calendar-toolbar">
+        <div id="calendar-nav">
+          <button id="cal-today" class="cal-btn">Today</button>
+          <button id="cal-prev" class="cal-btn">‹</button>
+          <button id="cal-next" class="cal-btn">›</button>
+          <span id="cal-title">February 2026</span>
+        </div>
+        <div id="calendar-view-btns">
+          <button class="cal-view-btn" data-view="day">Day</button>
+          <button class="cal-view-btn" data-view="week">Week</button>
+          <button class="cal-view-btn active" data-view="month">Month</button>
+        </div>
+        <div id="calendar-options">
+          <label style="display:flex; align-items:center; gap:6px; font-size:12px; color:#888; cursor:pointer;">
+            <input type="checkbox" id="cal-show-tasks" style="cursor:pointer;"> Tasks/Reminders
+          </label>
+        </div>
+        <div id="calendar-tz">
+          <select id="cal-tz-select">
+            <option value="America/Los_Angeles">Pacific (PT)</option>
+            <option value="America/Denver">Mountain (MT)</option>
+            <option value="America/Chicago">Central (CT)</option>
+            <option value="America/New_York">Eastern (ET)</option>
+            <option value="UTC">UTC</option>
+            <option value="Europe/London">London (GMT/BST)</option>
+            <option value="Europe/Paris">Paris (CET)</option>
+            <option value="Asia/Tokyo">Tokyo (JST)</option>
+            <option value="Asia/Taipei" selected>Taipei (CST)</option>
+            <option value="Australia/Sydney">Sydney (AEST)</option>
+          </select>
+        </div>
+      </div>
+      <div id="calendar-container">
+        <div id="calendar-month" class="calendar-grid"></div>
+        <div id="calendar-week" class="calendar-grid" style="display:none"></div>
+        <div id="calendar-day" class="calendar-grid" style="display:none"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Memory Tab -->
+  <div id="memory-tab" class="tab-content">
+    <div id="memory-header">
+      <div id="memory-subtabs">
+        <button class="memory-subtab active" data-subtab="daily">📅 Daily Logs</button>
+        <button class="memory-subtab" data-subtab="longterm">🧠 Long-Term Memory</button>
+      </div>
+      <div id="memory-stats"></div>
+    </div>
+    
+    <div id="memory-content">
+      <!-- Daily Logs View -->
+      <div id="daily-logs-view" class="memory-view active">
+        <div class="loading-container">
+          <div class="spinner"></div>
+          <div>Loading daily logs...</div>
+        </div>
+      </div>
+      
+      <!-- Long-Term Memory View -->
+      <div id="longterm-view" class="memory-view">
+        <div class="loading-container">
+          <div class="spinner"></div>
+          <div>Loading MEMORY.md...</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Side Panel -->
+  <div id="panel">
+    <div id="panel-header">
+      <div>
+        <button id="panel-back">← Back</button>
+        <div id="panel-title">Title</div>
+        <div id="panel-meta"></div>
+      </div>
+      <button id="panel-close">&times;</button>
+    </div>
+    <div id="panel-gist"></div>
+    <div id="panel-dates"></div>
+    <div id="panel-tags"></div>
+    <div id="panel-links"></div>
+    <div id="panel-content"></div>
+  </div>
+
+  <script>
+    // ==========================================
+    // SHARED STATE & UTILITIES
+    // ==========================================
+    
+    const API_BASE = window.location.origin;
+    let currentTab = 'entities';
+    let panelMode = null; // 'entity' or 'intent'
+    
+    const typeColors = {
+      person: '#4ade80',
+      place: '#f97316',
+      project: '#22d3d1',
+      domain: '#60a5fa',
+      resource: '#facc15',
+      system: '#c084fc'
+    };
+
+    function escapeHtml(text) {
+      if (!text) return '';
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
+    function formatDate(isoString) {
+      if (!isoString) return '-';
+      const date = new Date(isoString);
+      return date.toLocaleDateString('en-US', { 
+        month: 'short', day: 'numeric',
+        year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
+      });
+    }
+
+    function formatDateTime(isoString) {
+      if (!isoString) return '-';
+      const date = new Date(isoString);
+      return date.toLocaleString('en-US', { 
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: 'numeric', minute: '2-digit'
+      });
+    }
+
+    function relativeTime(isoString) {
+      if (!isoString) return '';
+      const date = new Date(isoString);
+      const now = new Date();
+      const diffMs = date - now;
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      
+      if (diffMs < 0) {
+        const absDays = Math.abs(diffDays);
+        const absHours = Math.abs(diffHours);
+        if (absDays > 0) return `${absDays}d overdue`;
+        if (absHours > 0) return `${absHours}h overdue`;
+        return 'overdue';
+      }
+      
+      if (diffDays === 0) return diffHours <= 1 ? 'in < 1h' : `in ${diffHours}h`;
+      if (diffDays === 1) return 'tomorrow';
+      if (diffDays < 7) return `in ${diffDays}d`;
+      return '';
+    }
+
+    function isOverdue(iso) { return iso && new Date(iso) < new Date(); }
+    function isSoon(iso) { 
+      if (!iso) return false;
+      const diff = new Date(iso) - new Date();
+      return diff > 0 && diff < 24 * 60 * 60 * 1000;
+    }
+
+    function closePanel() {
+      document.getElementById('panel').classList.remove('open');
+      document.body.classList.remove('panel-open');
+      if (network) network.unselectAll();
+      document.querySelectorAll('#intents-body tr').forEach(tr => tr.classList.remove('selected'));
+      panelMode = null;
+    }
+
+    // ==========================================
+    // ENTITIES (GRAPH)
+    // ==========================================
+    
+    let allEntities = [];
+    let allEdges = [];
+    let entityMap = {};
+    let network = null;
+    let nodesDataset = null;
+    let edgesDataset = null;
+    let entityFilter = 'all';
+
+    function parseCards(text) {
+      const entities = [];
+      const cardRegex = /## (memory\/areas\/[^\n]+)\s*\n\s*<!-- CARD\s*\n([\s\S]*?)-->/g;
+      let match;
+
+      while ((match = cardRegex.exec(text)) !== null) {
+        const path = match[1];
+        const cardContent = match[2];
+        const entity = { path };
+        
+        const idMatch = cardContent.match(/^id:\s*(.+)$/m);
+        if (idMatch) entity.id = idMatch[1].trim();
+        
+        const typeMatch = cardContent.match(/^type:\s*(.+)$/m);
+        if (typeMatch) entity.type = typeMatch[1].trim();
+        
+        const gistMatch = cardContent.match(/^gist:\s*(.+)$/m);
+        if (gistMatch) entity.gist = gistMatch[1].trim();
+        
+        const tagsMatch = cardContent.match(/^tags:\s*\[([^\]]*)\]/m);
+        if (tagsMatch) {
+          entity.tags = tagsMatch[1].split(',').map(t => t.trim().replace(/['"]/g, '')).filter(Boolean);
+        }
+        
+        entity.links = [];
+        const linksSection = cardContent.match(/^links:\n((?:\s+-.*\n?)*)/m);
+        if (linksSection) {
+          const linkRegex = /\{rel:\s*(\w+),\s*to:\s*([\w_-]+)(?:,\s*notes:\s*"([^"]*)")?\}/g;
+          let linkMatch;
+          while ((linkMatch = linkRegex.exec(linksSection[1])) !== null) {
+            entity.links.push({ rel: linkMatch[1], to: linkMatch[2], notes: linkMatch[3] || '' });
+          }
+        }
+        
+        const pathParts = path.split('/');
+        entity.label = pathParts[pathParts.length - 1].replace('.md', '');
+        
+        if (entity.id && entity.type) entities.push(entity);
+      }
+      return entities;
+    }
+
+    function buildEdges(entities) {
+      const edges = [];
+      const entityIds = new Set(entities.map(e => e.id));
+      entities.forEach(entity => {
+        if (entity.links) {
+          entity.links.forEach(link => {
+            if (entityIds.has(link.to)) {
+              edges.push({ from: entity.id, to: link.to, rel: link.rel, notes: link.notes });
+            }
+          });
+        }
+      });
+      return edges;
+    }
+
+    function createNode(entity) {
+      // Nodes with many connections are visually larger
+      const isCore = (entity.links && entity.links.length >= 3);
+      return {
+        id: entity.id,
+        label: entity.label,
+        title: `<strong>${entity.label}</strong><br><em>${entity.type}</em><br><br>${entity.gist || ''}`,
+        color: {
+          background: typeColors[entity.type] || '#888',
+          border: typeColors[entity.type] || '#888',
+          highlight: { background: '#fff', border: typeColors[entity.type] || '#888' }
+        },
+        font: { color: '#fff', size: 14 },
+        size: isCore ? 35 : 22,
+        shape: 'dot',
+        borderWidth: 2,
+        shadow: { enabled: true, color: typeColors[entity.type] || '#888', size: 10, x: 0, y: 0 },
+        _entity: entity
+      };
+    }
+
+    function createEdge(edge) {
+      return {
+        from: edge.from,
+        to: edge.to,
+        arrows: { to: { enabled: true, scaleFactor: 0.5 } },
+        color: { color: '#333', highlight: '#666', opacity: 0.6 },
+        smooth: { type: 'continuous', roundness: 0.2 },
+        width: 1,
+        title: edge.rel + (edge.notes ? `: ${edge.notes}` : '')
+      };
+    }
+
+    function applyEntityFilters() {
+      const searchTerm = document.getElementById('entities-search').value.toLowerCase();
+      
+      const filtered = allEntities.filter(e => {
+        const typeMatch = entityFilter === 'all' || e.type === entityFilter;
+        const searchMatch = !searchTerm || 
+          e.label.toLowerCase().includes(searchTerm) ||
+          (e.gist && e.gist.toLowerCase().includes(searchTerm)) ||
+          (e.tags && e.tags.some(t => t.toLowerCase().includes(searchTerm)));
+        return typeMatch && searchMatch;
+      });
+
+      const filteredIds = new Set(filtered.map(e => e.id));
+      const filteredEdges = allEdges.filter(e => filteredIds.has(e.from) && filteredIds.has(e.to));
+
+      nodesDataset.clear();
+      edgesDataset.clear();
+      nodesDataset.add(filtered.map(createNode));
+      edgesDataset.add(filteredEdges.map(createEdge));
+
+      document.getElementById('entities-stats').textContent = `${filtered.length} entities · ${filteredEdges.length} connections`;
+    }
+
+    async function showEntityPanel(entity) {
+      panelMode = 'entity';
+      
+      document.getElementById('panel-title').textContent = entity.label;
+      document.getElementById('panel-meta').innerHTML = `<span class="type-badge type-${entity.type}" style="background:${typeColors[entity.type]}40; color:${typeColors[entity.type]}">${entity.type}</span>`;
+      document.getElementById('panel-gist').textContent = entity.gist || '';
+      document.getElementById('panel-dates').innerHTML = '';
+      
+      // Tags
+      const tagsEl = document.getElementById('panel-tags');
+      tagsEl.innerHTML = '';
+      if (entity.tags?.length) {
+        entity.tags.forEach(tag => {
+          const span = document.createElement('span');
+          span.className = 'tag';
+          span.textContent = tag;
+          tagsEl.appendChild(span);
+        });
+      }
+      
+      // Links
+      const linksEl = document.getElementById('panel-links');
+      linksEl.innerHTML = '';
+      if (entity.links?.length) {
+        linksEl.innerHTML = '<h4>Connections</h4>';
+        entity.links.forEach(link => {
+          const div = document.createElement('div');
+          div.className = 'link-item';
+          div.innerHTML = `<span class="link-rel">${link.rel}</span> → <span class="link-target">${link.to}</span>`;
+          div.addEventListener('click', () => {
+            const target = entityMap[link.to];
+            if (target) {
+              network.selectNodes([link.to]);
+              showEntityPanel(target);
+            }
+          });
+          linksEl.appendChild(div);
+        });
+      }
+      
+      // Fetch content
+      const contentEl = document.getElementById('panel-content');
+      contentEl.innerHTML = '<div class="spinner" style="margin:40px auto"></div>';
+      
+      try {
+        const resp = await fetch(`${API_BASE}/${entity.path}`);
+        if (resp.ok) {
+          let md = await resp.text();
+          md = md.replace(/<!-- CARD[\s\S]*?-->\n*/g, '');
+          contentEl.innerHTML = marked.parse(md);
+        } else {
+          contentEl.innerHTML = '<p style="color:#888">Could not load content.</p>';
+        }
+      } catch (err) {
+        contentEl.innerHTML = `<p style="color:#e94560">Error: ${err.message}</p>`;
+      }
+      
+      document.getElementById('panel').classList.add('open');
+      document.body.classList.add('panel-open');
+    }
+
+    async function initEntities() {
+      try {
+        const resp = await fetch(`${API_BASE}/memory/_index/_cards.md`);
+        if (!resp.ok) throw new Error('Could not load _cards.md');
+        
+        const text = await resp.text();
+        allEntities = parseCards(text);
+        allEdges = buildEdges(allEntities);
+        allEntities.forEach(e => entityMap[e.id] = e);
+        
+        nodesDataset = new vis.DataSet(allEntities.map(createNode));
+        edgesDataset = new vis.DataSet(allEdges.map(createEdge));
+        
+        const container = document.getElementById('graph');
+        network = new vis.Network(container, { nodes: nodesDataset, edges: edgesDataset }, {
+          physics: {
+            forceAtlas2Based: { gravitationalConstant: -80, centralGravity: 0.015, springLength: 180, springConstant: 0.08, damping: 0.4 },
+            solver: 'forceAtlas2Based',
+            stabilization: { iterations: 200, fit: true }
+          },
+          interaction: { hover: true, tooltipDelay: 200, hideEdgesOnDrag: true, hideEdgesOnZoom: true }
+        });
+        
+        network.on('click', params => {
+          if (params.nodes.length > 0) {
+            const entity = entityMap[params.nodes[0]];
+            if (entity) showEntityPanel(entity);
+          } else {
+            closePanel();
+          }
+        });
+        
+        network.on('doubleClick', params => {
+          if (params.nodes.length > 0) network.focus(params.nodes[0], { scale: 1.5, animation: true });
+        });
+        
+        network.on('stabilizationIterationsDone', () => network.fit());
+        
+        document.getElementById('entities-stats').textContent = `${allEntities.length} entities · ${allEdges.length} connections`;
+      } catch (err) {
+        document.getElementById('graph').innerHTML = `<div class="loading-container"><div style="color:#e94560">Error: ${err.message}</div></div>`;
+      }
+    }
+
+    // ==========================================
+    // INTENTS
+    // ==========================================
+    
+    let allIntents = [];
+    let intentFilters = { status: 'all', type: 'all', q: '' };
+    let intentSort = { field: 'due_at', dir: 'asc' };
+    let selectedIntentId = null;
+    let entityCache = {};
+    let intentDebugMode = false;
+
+    async function fetchIntents() {
+      const params = new URLSearchParams();
+      if (intentFilters.status !== 'all') params.append('status', intentFilters.status);
+      if (intentFilters.type !== 'all') params.append('type', intentFilters.type);
+      if (intentFilters.q) params.append('q', intentFilters.q);
+      
+      const resp = await fetch(`${API_BASE}/api/intents?${params}`);
+      const data = await resp.json();
+      return data.intents || [];
+    }
+
+    async function fetchStats() {
+      const resp = await fetch(`${API_BASE}/api/stats`);
+      return await resp.json();
+    }
+
+    async function fetchEntity(path) {
+      if (entityCache[path]) return entityCache[path];
+      try {
+        const resp = await fetch(`${API_BASE}/${path}`);
+        if (!resp.ok) return null;
+        const text = await resp.text();
+        const cardMatch = text.match(/<!-- CARD\s*\n([\s\S]*?)-->/);
+        let card = {};
+        if (cardMatch) {
+          const gistMatch = cardMatch[1].match(/^gist:\s*(.+)$/m);
+          const typeMatch = cardMatch[1].match(/^type:\s*(.+)$/m);
+          if (gistMatch) card.gist = gistMatch[1].trim();
+          if (typeMatch) card.type = typeMatch[1].trim();
+        }
+        const result = { path, card, content: text };
+        entityCache[path] = result;
+        return result;
+      } catch { return null; }
+    }
+
+    function renderIntentsTable(intents) {
+      const container = document.getElementById('intents-content');
+      
+      if (intents.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div>No intents match your filters</div></div>';
+        return;
+      }
+      
+      const sorted = [...intents].sort((a, b) => {
+        let aVal = a[intentSort.field] || '';
+        let bVal = b[intentSort.field] || '';
+        return aVal.localeCompare(bVal) * (intentSort.dir === 'asc' ? 1 : -1);
+      });
+      
+      // Debug mode: show all SQL columns
+      if (intentDebugMode) {
+        let html = `<div style="overflow-x: auto;"><table id="intents-table" class="debug-table" style="font-size: 11px;">
+          <thead><tr>
+            <th class="sortable" data-sort="id">ID ↕</th>
+            <th class="sortable" data-sort="type">Type ↕</th>
+            <th class="sortable" data-sort="status">Status ↕</th>
+            <th class="sortable" data-sort="title">Title ↕</th>
+            <th>Body</th>
+            <th class="sortable" data-sort="due_at">due_at ↕</th>
+            <th class="sortable" data-sort="start_at">start_at ↕</th>
+            <th class="sortable" data-sort="end_at">end_at ↕</th>
+            <th class="sortable" data-sort="snooze_until">snooze_until ↕</th>
+            <th class="sortable" data-sort="priority">priority ↕</th>
+            <th class="sortable" data-sort="deferrals">defer ↕</th>
+            <th class="sortable" data-sort="rescheduled_count">resched ↕</th>
+            <th>estimate_min</th>
+            <th>rrule</th>
+            <th>timezone</th>
+            <th>location</th>
+            <th>attendees</th>
+            <th class="sortable" data-sort="last_fired_at">last_fired_at ↕</th>
+            <th class="sortable" data-sort="created_at">created_at ↕</th>
+            <th class="sortable" data-sort="updated_at">updated_at ↕</th>
+            <th>linked_paths</th>
+          </tr></thead>
+          <tbody id="intents-body">`;
+        
+        sorted.forEach(intent => {
+          const truncate = (s, len=30) => s && s.length > len ? s.slice(0, len) + '…' : (s || '-');
+          const fmtTs = (ts) => ts ? ts.replace('T', ' ').replace('Z', '') : '-';
+          
+          html += `<tr data-id="${intent.id}" class="${intent.id === selectedIntentId ? 'selected' : ''}" style="font-family: monospace;">
+            <td style="font-size:10px; max-width:80px; overflow:hidden; text-overflow:ellipsis;" title="${intent.id}">${intent.id?.slice(-8) || '-'}</td>
+            <td><span class="type-badge type-${intent.type}" style="font-size:9px;">${intent.type}</span></td>
+            <td><span class="status-badge status-${intent.status}" style="font-size:9px; padding:2px 6px;">${intent.status}</span></td>
+            <td style="max-width:150px; overflow:hidden; text-overflow:ellipsis;" title="${escapeHtml(intent.title)}">${escapeHtml(truncate(intent.title, 25))}</td>
+            <td style="max-width:100px; overflow:hidden; text-overflow:ellipsis; color:#888;" title="${escapeHtml(intent.body || '')}">${escapeHtml(truncate(intent.body, 20))}</td>
+            <td style="white-space:nowrap; color:#aaa;">${fmtTs(intent.due_at)}</td>
+            <td style="white-space:nowrap; color:#aaa;">${fmtTs(intent.start_at)}</td>
+            <td style="white-space:nowrap; color:#aaa;">${fmtTs(intent.end_at)}</td>
+            <td style="white-space:nowrap; color:#facc15;">${fmtTs(intent.snooze_until)}</td>
+            <td style="text-align:center;">${intent.priority ?? '-'}</td>
+            <td style="text-align:center; color:${intent.deferrals > 0 ? '#facc15' : '#666'};">${intent.deferrals ?? 0}</td>
+            <td style="text-align:center; color:${intent.rescheduled_count > 0 ? '#60a5fa' : '#666'};">${intent.rescheduled_count ?? 0}</td>
+            <td style="text-align:center;">${intent.estimate_minutes ?? '-'}</td>
+            <td style="max-width:80px; overflow:hidden; text-overflow:ellipsis; color:#888;" title="${intent.rrule || ''}">${truncate(intent.rrule, 15)}</td>
+            <td style="color:#888;">${intent.timezone || '-'}</td>
+            <td style="max-width:80px; overflow:hidden; text-overflow:ellipsis; color:#888;" title="${intent.location_text || ''}">${truncate(intent.location_text, 15)}</td>
+            <td style="max-width:60px; overflow:hidden; text-overflow:ellipsis; color:#888;" title="${intent.attendees_json || ''}">${truncate(intent.attendees_json, 10)}</td>
+            <td style="white-space:nowrap; color:#aaa;">${fmtTs(intent.last_fired_at)}</td>
+            <td style="white-space:nowrap; color:#666;">${fmtTs(intent.created_at)}</td>
+            <td style="white-space:nowrap; color:#666;">${fmtTs(intent.updated_at)}</td>
+            <td style="max-width:120px; overflow:hidden; text-overflow:ellipsis; color:#60a5fa;" title="${(intent.linked_paths || []).join(', ')}">${intent.linked_paths?.length ? intent.linked_paths.map(p => p.split('/').pop()).join(', ') : '-'}</td>
+          </tr>`;
+        });
+        
+        html += '</tbody></table></div>';
+        container.innerHTML = html;
+      } else {
+        // Normal view
+        let html = `<table id="intents-table">
+          <thead><tr>
+            <th>Status</th>
+            <th>Type</th>
+            <th class="sortable" data-sort="title">Title ↕</th>
+            <th class="sortable" data-sort="due_at">Due ↕</th>
+            <th class="sortable" data-sort="created_at">Created ↕</th>
+            <th>Links</th>
+          </tr></thead>
+          <tbody id="intents-body">`;
+        
+        sorted.forEach(intent => {
+          const dueDate = intent.due_at || intent.start_at;
+          const overdueClass = intent.status === 'active' && isOverdue(dueDate) ? 'overdue' : '';
+          const soonClass = intent.status === 'active' && isSoon(dueDate) ? 'soon' : '';
+          
+          html += `<tr data-id="${intent.id}" class="${intent.id === selectedIntentId ? 'selected' : ''}">
+            <td><span class="status-badge status-${intent.status}">${intent.status}</span></td>
+            <td><span class="type-badge type-${intent.type}">${intent.type}</span></td>
+            <td>
+              <div class="intent-title">${escapeHtml(intent.title)}</div>
+              ${intent.body ? `<div class="intent-body">${escapeHtml(intent.body)}</div>` : ''}
+            </td>
+            <td class="date-cell ${overdueClass} ${soonClass}">
+              ${formatDate(dueDate)}
+              ${relativeTime(dueDate) ? `<div class="date-relative">${relativeTime(dueDate)}</div>` : ''}
+            </td>
+            <td class="date-cell">${formatDate(intent.created_at)}</td>
+            <td>${intent.linked_paths?.length ? `<span class="links-count">🔗 ${intent.linked_paths.length}</span>` : '-'}</td>
+          </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        container.innerHTML = html;
+      }
+      
+      // Event listeners
+      document.querySelectorAll('#intents-body tr').forEach(tr => {
+        tr.addEventListener('click', () => {
+          const id = tr.dataset.id;
+          const intent = allIntents.find(i => i.id === id);
+          if (intent) showIntentPanel(intent);
+        });
+      });
+      
+      document.querySelectorAll('#intents-table th.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+          const field = th.dataset.sort;
+          if (intentSort.field === field) {
+            intentSort.dir = intentSort.dir === 'asc' ? 'desc' : 'asc';
+          } else {
+            intentSort.field = field;
+            intentSort.dir = 'asc';
+          }
+          renderIntentsTable(allIntents);
+        });
+      });
+    }
+
+    async function showIntentPanel(intent) {
+      panelMode = 'intent';
+      selectedIntentId = intent.id;
+      
+      document.querySelectorAll('#intents-body tr').forEach(tr => {
+        tr.classList.toggle('selected', tr.dataset.id === intent.id);
+      });
+      
+      document.getElementById('panel-title').textContent = intent.title;
+      document.getElementById('panel-meta').innerHTML = `
+        <span class="status-badge status-${intent.status}">${intent.status}</span>
+        <span class="type-badge type-${intent.type}">${intent.type}</span>`;
+      document.getElementById('panel-gist').textContent = '';
+      document.getElementById('panel-tags').innerHTML = '';
+      
+      // Dates
+      document.getElementById('panel-dates').innerHTML = `
+        ${intent.due_at ? `<div class="date-item"><label>Due</label><div class="value">${formatDateTime(intent.due_at)}</div></div>` : ''}
+        ${intent.start_at ? `<div class="date-item"><label>Start</label><div class="value">${formatDateTime(intent.start_at)}</div></div>` : ''}
+        ${intent.end_at ? `<div class="date-item"><label>End</label><div class="value">${formatDateTime(intent.end_at)}</div></div>` : ''}
+        ${intent.snooze_until ? `<div class="date-item"><label>Snoozed Until</label><div class="value">${formatDateTime(intent.snooze_until)}</div></div>` : ''}
+        <div class="date-item"><label>Created</label><div class="value">${formatDateTime(intent.created_at)}</div></div>
+        <div class="date-item"><label>Updated</label><div class="value">${formatDateTime(intent.updated_at)}</div></div>`;
+      
+      // Body
+      const contentEl = document.getElementById('panel-content');
+      let content = '';
+      if (intent.body) content += marked.parse(intent.body);
+      
+      let details = '';
+      if (intent.rrule) details += `**Recurrence:** \`${intent.rrule}\`\n\n`;
+      if (intent.timezone) details += `**Timezone:** ${intent.timezone}\n\n`;
+      if (intent.location_text) details += `**Location:** ${intent.location_text}\n\n`;
+      if (details) content += '<hr>' + marked.parse(details);
+      
+      contentEl.innerHTML = content || '<p style="color:#666">No additional details.</p>';
+      
+      // Links
+      const linksEl = document.getElementById('panel-links');
+      linksEl.innerHTML = '';
+      if (intent.linked_paths?.length) {
+        linksEl.innerHTML = '<h4>Linked Entities</h4>';
+        for (const path of intent.linked_paths) {
+          const entity = await fetchEntity(path);
+          const card = document.createElement('div');
+          card.className = 'link-card';
+          const name = path.split('/').pop().replace('.md', '');
+          card.innerHTML = `
+            <div class="link-card-title">${name}</div>
+            <div class="link-card-path">${path}</div>
+            ${entity?.card?.gist ? `<div class="link-card-gist">${entity.card.gist}</div>` : ''}`;
+          card.addEventListener('click', () => {
+            switchTab('entities');
+            setTimeout(() => {
+              const entityId = Object.keys(entityMap).find(id => entityMap[id].path === path);
+              if (entityId && network) {
+                network.selectNodes([entityId]);
+                network.focus(entityId, { scale: 1.2, animation: true });
+                showEntityPanel(entityMap[entityId]);
+              }
+            }, 100);
+          });
+          linksEl.appendChild(card);
+        }
+      }
+      
+      document.getElementById('panel').classList.add('open');
+      document.body.classList.add('panel-open');
+    }
+
+    async function loadIntents() {
+      try {
+        allIntents = await fetchIntents();
+        renderIntentsTable(allIntents);
+        const stats = await fetchStats();
+        document.getElementById('stat-total').textContent = stats.stats.reduce((sum, s) => sum + s.count, 0);
+        document.getElementById('stat-overdue').textContent = stats.overdue;
+        document.getElementById('stat-upcoming').textContent = stats.upcoming;
+      } catch (err) {
+        document.getElementById('intents-content').innerHTML = `<div class="loading-container"><div style="color:#e94560">Error: ${err.message}</div></div>`;
+      }
+    }
+
+    // ==========================================
+    // CALENDAR
+    // ==========================================
+
+    let calendarView = 'month';
+    let calendarDate = new Date();
+    let calendarEvents = [];
+    let calendarTimezone = 'Asia/Taipei'; // Default to Taipei
+    let calendarShowTasksReminders = false;
+
+    const HOUR_HEIGHT = 48;
+    const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 
+                         'July', 'August', 'September', 'October', 'November', 'December'];
+
+    // Convert a UTC date to the calendar timezone and return components
+    function toCalendarTZ(date) {
+      const d = new Date(date);
+      const str = d.toLocaleString('en-US', { 
+        timeZone: calendarTimezone,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', hour12: false
+      });
+      // Parse "MM/DD/YYYY, HH:MM"
+      const [datePart, timePart] = str.split(', ');
+      const [month, day, year] = datePart.split('/').map(Number);
+      const [hours, minutes] = timePart.split(':').map(Number);
+      return { year, month: month - 1, day, hours, minutes, 
+               dateStr: `${year}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}` };
+    }
+
+    // Get current date in calendar timezone
+    function getTodayInTZ() {
+      return toCalendarTZ(new Date());
+    }
+
+    // Create a date object for a specific date in the calendar timezone (for navigation)
+    function createDateInTZ(year, month, day) {
+      // Create a date string and parse it
+      const d = new Date(year, month, day, 12, 0, 0); // noon to avoid DST issues
+      return d;
+    }
+
+    // Simple RRULE parser for common cases
+    function expandRRule(event, rangeStart, rangeEnd) {
+      if (!event.rrule || !event.start_at) return [event];
+      
+      const events = [];
+      const rule = event.rrule;
+      const start = new Date(event.start_at);
+      const duration = event.end_at ? new Date(event.end_at) - start : 3600000;
+      
+      // Parse RRULE
+      const freqMatch = rule.match(/FREQ=(\w+)/);
+      const intervalMatch = rule.match(/INTERVAL=(\d+)/);
+      const countMatch = rule.match(/COUNT=(\d+)/);
+      const untilMatch = rule.match(/UNTIL=(\d{8})/);
+      const bydayMatch = rule.match(/BYDAY=([^;]+)/);
+      
+      if (!freqMatch) return [event];
+      
+      const freq = freqMatch[1];
+      const interval = intervalMatch ? parseInt(intervalMatch[1]) : 1;
+      const count = countMatch ? parseInt(countMatch[1]) : 365;
+      const until = untilMatch ? new Date(untilMatch[1].slice(0,4) + '-' + untilMatch[1].slice(4,6) + '-' + untilMatch[1].slice(6,8)) : rangeEnd;
+      
+      let current = new Date(start);
+      let generated = 0;
+      
+      while (current <= until && current <= rangeEnd && generated < count) {
+        if (current >= rangeStart) {
+          const eventStart = new Date(current);
+          const eventEnd = new Date(current.getTime() + duration);
+          events.push({
+            ...event,
+            start_at: eventStart.toISOString(),
+            end_at: eventEnd.toISOString(),
+            _isRecurrence: generated > 0
+          });
+        }
+        generated++;
+        
+        // Advance to next occurrence
+        switch (freq) {
+          case 'DAILY':
+            current.setDate(current.getDate() + interval);
+            break;
+          case 'WEEKLY':
+            current.setDate(current.getDate() + (7 * interval));
+            break;
+          case 'MONTHLY':
+            current.setMonth(current.getMonth() + interval);
+            break;
+          case 'YEARLY':
+            current.setFullYear(current.getFullYear() + interval);
+            break;
+          default:
+            return [event];
+        }
+      }
+      
+      return events;
+    }
+
+    async function loadCalendarEvents() {
+      try {
+        // Always load events
+        const eventResp = await fetch(`${API_BASE}/api/intents?type=event&status=active&status=done`);
+        const eventData = await eventResp.json();
+        
+        // Expand recurring events (canceled/snoozed already filtered by API)
+        const rangeStart = new Date(calendarDate);
+        rangeStart.setMonth(rangeStart.getMonth() - 1);
+        const rangeEnd = new Date(calendarDate);
+        rangeEnd.setMonth(rangeEnd.getMonth() + 2);
+        
+        calendarEvents = [];
+        for (const event of (eventData.intents || [])) {
+          const expanded = expandRRule(event, rangeStart, rangeEnd);
+          calendarEvents.push(...expanded);
+        }
+        
+        // Optionally load tasks and reminders
+        if (calendarShowTasksReminders) {
+          const taskResp = await fetch(`${API_BASE}/api/intents?type=task&status=active&status=done`);
+          const taskData = await taskResp.json();
+          const reminderResp = await fetch(`${API_BASE}/api/intents?type=reminder&status=active&status=done`);
+          const reminderData = await reminderResp.json();
+          
+          // Convert tasks/reminders to calendar items (30 min blocks using due_at as start)
+          for (const intent of [...(taskData.intents || []), ...(reminderData.intents || [])]) {
+            if (intent.due_at) {
+              const startAt = intent.due_at;
+              const endAt = new Date(new Date(intent.due_at).getTime() + 30 * 60 * 1000).toISOString();
+              calendarEvents.push({
+                ...intent,
+                start_at: startAt,
+                end_at: endAt,
+                _isTaskOrReminder: true
+              });
+            }
+          }
+        }
+        
+        renderCalendar();
+      } catch (err) {
+        console.error('Failed to load calendar events:', err);
+      }
+    }
+
+    // Pass dateStr directly (YYYY-MM-DD) to avoid timezone confusion
+    function getEventsForDateStr(dateStr) {
+      return calendarEvents.filter(e => {
+        if (!e.start_at) return false;
+        const eventTZ = toCalendarTZ(new Date(e.start_at));
+        return eventTZ.dateStr === dateStr;
+      });
+    }
+
+    function formatTime(isoString) {
+      const date = new Date(isoString);
+      return date.toLocaleTimeString('en-US', { 
+        timeZone: calendarTimezone,
+        hour: 'numeric', 
+        minute: '2-digit', 
+        hour12: true 
+      });
+    }
+
+    function getEventTimeInTZ(isoString) {
+      const tz = toCalendarTZ(new Date(isoString));
+      return { hours: tz.hours, minutes: tz.minutes };
+    }
+
+    function renderCalendar() {
+      updateCalendarTitle();
+      
+      switch (calendarView) {
+        case 'month': renderMonthView(); break;
+        case 'week': renderWeekView(); break;
+        case 'day': renderDayView(); break;
+      }
+    }
+
+    function updateCalendarTitle() {
+      let title = '';
+      const tzAbbr = new Date().toLocaleString('en-US', { timeZone: calendarTimezone, timeZoneName: 'short' }).split(' ').pop();
+      
+      switch (calendarView) {
+        case 'month':
+          title = `${MONTH_NAMES[calendarDate.getMonth()]} ${calendarDate.getFullYear()}`;
+          break;
+        case 'week':
+          const weekStart = new Date(calendarDate);
+          weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+          const weekEnd = new Date(weekStart);
+          weekEnd.setDate(weekEnd.getDate() + 6);
+          if (weekStart.getMonth() === weekEnd.getMonth()) {
+            title = `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getDate()} - ${weekEnd.getDate()}, ${weekStart.getFullYear()}`;
+          } else {
+            title = `${MONTH_NAMES[weekStart.getMonth()]} ${weekStart.getDate()} - ${MONTH_NAMES[weekEnd.getMonth()]} ${weekEnd.getDate()}, ${weekEnd.getFullYear()}`;
+          }
+          break;
+        case 'day':
+          title = `${DAY_NAMES[calendarDate.getDay()]}, ${MONTH_NAMES[calendarDate.getMonth()]} ${calendarDate.getDate()}, ${calendarDate.getFullYear()}`;
+          break;
+      }
+      document.getElementById('cal-title').textContent = title;
+    }
+
+    function renderMonthView() {
+      const container = document.getElementById('calendar-month');
+      const year = calendarDate.getFullYear();
+      const month = calendarDate.getMonth();
+      
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const startDate = new Date(firstDay);
+      startDate.setDate(startDate.getDate() - firstDay.getDay());
+      
+      const todayTZ = getTodayInTZ();
+      const todayStr = todayTZ.dateStr;
+      
+      let html = '';
+      
+      // Header
+      DAY_NAMES.forEach(day => {
+        html += `<div class="cal-header-cell">${day}</div>`;
+      });
+      
+      // Days
+      const current = new Date(startDate);
+      for (let i = 0; i < 42; i++) {
+        const yr = current.getFullYear();
+        const mo = String(current.getMonth() + 1).padStart(2, '0');
+        const dy = String(current.getDate()).padStart(2, '0');
+        const dateStr = `${yr}-${mo}-${dy}`;
+        const isOtherMonth = current.getMonth() !== month;
+        const isToday = dateStr === todayStr;
+        const events = getEventsForDateStr(dateStr);
+        
+        html += `<div class="cal-day-cell ${isOtherMonth ? 'other-month' : ''} ${isToday ? 'today' : ''}" data-date="${dateStr}">`;
+        html += `<div class="cal-day-num">${current.getDate()}</div>`;
+        
+        const maxEvents = 3;
+        events.slice(0, maxEvents).forEach(event => {
+          const time = formatTime(event.start_at);
+          const doneClass = event.status === 'done' ? 'done' : '';
+          const typeClass = (event.type === 'task' || event.type === 'reminder') ? event.type : '';
+          html += `<div class="cal-event ${doneClass} ${typeClass}" data-id="${event.id}" title="${escapeHtml(event.title)}">${time} ${escapeHtml(event.title)}</div>`;
+        });
+        
+        if (events.length > maxEvents) {
+          html += `<div class="cal-event-more">+${events.length - maxEvents} more</div>`;
+        }
+        
+        html += '</div>';
+        current.setDate(current.getDate() + 1);
+      }
+      
+      container.innerHTML = html;
+      container.style.display = 'grid';
+      document.getElementById('calendar-week').style.display = 'none';
+      document.getElementById('calendar-day').style.display = 'none';
+      
+      // Event click handlers
+      container.querySelectorAll('.cal-event').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = el.dataset.id;
+          const event = calendarEvents.find(ev => ev.id === id);
+          if (event) showIntentPanel(event);
+        });
+      });
+    }
+
+    function renderWeekView() {
+      const container = document.getElementById('calendar-week');
+      const weekStart = new Date(calendarDate);
+      weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      
+      const todayTZ = getTodayInTZ();
+      const todayStr = todayTZ.dateStr;
+      
+      let html = '<div class="cal-week-header"><div class="cal-week-header-cell"></div>';
+      
+      // Header with day names and dates
+      for (let i = 0; i < 7; i++) {
+        const day = new Date(weekStart);
+        day.setDate(day.getDate() + i);
+        const yr = day.getFullYear();
+        const mo = String(day.getMonth() + 1).padStart(2, '0');
+        const dy = String(day.getDate()).padStart(2, '0');
+        const dateStr = `${yr}-${mo}-${dy}`;
+        const isToday = dateStr === todayStr;
+        html += `<div class="cal-week-header-cell ${isToday ? 'today' : ''}">
+          <div class="cal-week-day-name">${DAY_NAMES[i]}</div>
+          <div class="cal-week-day-num">${day.getDate()}</div>
+        </div>`;
+      }
+      html += '</div>';
+      
+      // Time grid
+      html += '<div class="cal-week-body">';
+      
+      // Time column
+      html += '<div class="cal-time-column">';
+      for (let h = 0; h < 24; h++) {
+        const timeStr = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+        html += `<div class="cal-time-slot">${timeStr}</div>`;
+      }
+      html += '</div>';
+      
+      // Day columns
+      for (let i = 0; i < 7; i++) {
+        const day = new Date(weekStart);
+        day.setDate(day.getDate() + i);
+        const yr = day.getFullYear();
+        const mo = String(day.getMonth() + 1).padStart(2, '0');
+        const dy = String(day.getDate()).padStart(2, '0');
+        const dateStr = `${yr}-${mo}-${dy}`;
+        const events = getEventsForDateStr(dateStr);
+        
+        html += `<div class="cal-day-column" data-date="${dateStr}">`;
+        
+        // Hour lines
+        for (let h = 0; h < 24; h++) {
+          html += `<div class="cal-hour-line" style="top: ${h * HOUR_HEIGHT}px"></div>`;
+          html += `<div class="cal-hour-line half" style="top: ${h * HOUR_HEIGHT + HOUR_HEIGHT/2}px"></div>`;
+        }
+        
+        // Position events
+        const positioned = positionEventsForDay(events);
+        positioned.forEach(({ event, top, height, column, totalColumns }) => {
+          const width = totalColumns > 1 ? `calc(${100/totalColumns}% - 4px)` : 'calc(100% - 4px)';
+          const left = totalColumns > 1 ? `calc(${(column/totalColumns) * 100}% + 2px)` : '2px';
+          const doneClass = event.status === 'done' ? 'done' : '';
+          const typeClass = (event.type === 'task' || event.type === 'reminder') ? event.type : '';
+          
+          html += `<div class="cal-time-event ${doneClass} ${typeClass}" data-id="${event.id}" 
+            style="top: ${top}px; height: ${Math.max(height, 20)}px; width: ${width}; left: ${left};">
+            <div class="cal-time-event-title">${escapeHtml(event.title)}</div>
+            <div class="cal-time-event-time">${formatTime(event.start_at)}</div>
+          </div>`;
+        });
+        
+        html += '</div>';
+      }
+      
+      html += '</div>';
+      
+      container.innerHTML = html;
+      container.style.display = 'flex';
+      document.getElementById('calendar-month').style.display = 'none';
+      document.getElementById('calendar-day').style.display = 'none';
+      
+      // Event click handlers
+      container.querySelectorAll('.cal-time-event').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = el.dataset.id;
+          const event = calendarEvents.find(ev => ev.id === id);
+          if (event) showIntentPanel(event);
+        });
+      });
+    }
+
+    function renderDayView() {
+      const container = document.getElementById('calendar-day');
+      const todayTZ = getTodayInTZ();
+      const todayStr = todayTZ.dateStr;
+      const yr = calendarDate.getFullYear();
+      const mo = String(calendarDate.getMonth() + 1).padStart(2, '0');
+      const dy = String(calendarDate.getDate()).padStart(2, '0');
+      const dateStr = `${yr}-${mo}-${dy}`;
+      const isToday = dateStr === todayStr;
+      const events = getEventsForDateStr(dateStr);
+      
+      let html = `<div class="cal-day-header ${isToday ? 'today' : ''}">
+        <div class="cal-day-header-date">${DAY_NAMES[calendarDate.getDay()]}</div>
+        <div class="cal-day-header-num">${calendarDate.getDate()}</div>
+      </div>`;
+      
+      html += '<div class="cal-day-body">';
+      
+      // Time column
+      html += '<div class="cal-time-column">';
+      for (let h = 0; h < 24; h++) {
+        const timeStr = h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`;
+        html += `<div class="cal-time-slot">${timeStr}</div>`;
+      }
+      html += '</div>';
+      
+      // Events column
+      html += `<div class="cal-day-column" data-date="${dateStr}">`;
+      
+      // Hour lines
+      for (let h = 0; h < 24; h++) {
+        html += `<div class="cal-hour-line" style="top: ${h * HOUR_HEIGHT}px"></div>`;
+        html += `<div class="cal-hour-line half" style="top: ${h * HOUR_HEIGHT + HOUR_HEIGHT/2}px"></div>`;
+      }
+      
+      // Position events
+      const positioned = positionEventsForDay(events);
+      positioned.forEach(({ event, top, height, column, totalColumns }) => {
+        const width = totalColumns > 1 ? `calc(${100/totalColumns}% - 4px)` : 'calc(100% - 4px)';
+        const left = totalColumns > 1 ? `calc(${(column/totalColumns) * 100}% + 2px)` : '2px';
+        const doneClass = event.status === 'done' ? 'done' : '';
+        const typeClass = (event.type === 'task' || event.type === 'reminder') ? event.type : '';
+        
+        html += `<div class="cal-time-event ${doneClass} ${typeClass}" data-id="${event.id}" 
+          style="top: ${top}px; height: ${Math.max(height, 20)}px; width: ${width}; left: ${left};">
+          <div class="cal-time-event-title">${escapeHtml(event.title)}</div>
+          <div class="cal-time-event-time">${formatTime(event.start_at)}${event.end_at ? ' - ' + formatTime(event.end_at) : ''}</div>
+        </div>`;
+      });
+      
+      html += '</div></div>';
+      
+      container.innerHTML = html;
+      container.style.display = 'flex';
+      document.getElementById('calendar-month').style.display = 'none';
+      document.getElementById('calendar-week').style.display = 'none';
+      
+      // Event click handlers
+      container.querySelectorAll('.cal-time-event').forEach(el => {
+        el.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const id = el.dataset.id;
+          const event = calendarEvents.find(ev => ev.id === id);
+          if (event) showIntentPanel(event);
+        });
+      });
+    }
+
+    function positionEventsForDay(events) {
+      if (events.length === 0) return [];
+      
+      // Calculate top and height for each event using timezone
+      const positioned = events.map(event => {
+        const startTZ = getEventTimeInTZ(event.start_at);
+        const endTZ = event.end_at ? getEventTimeInTZ(event.end_at) : { hours: startTZ.hours + 1, minutes: startTZ.minutes };
+        
+        const startMinutes = startTZ.hours * 60 + startTZ.minutes;
+        let endMinutes = endTZ.hours * 60 + endTZ.minutes;
+        
+        // Handle events that cross midnight or end time is less than start (next day)
+        if (endMinutes <= startMinutes) endMinutes = startMinutes + 60;
+        
+        const durationMinutes = Math.max(endMinutes - startMinutes, 30);
+        
+        const top = (startMinutes / 60) * HOUR_HEIGHT;
+        const height = (durationMinutes / 60) * HOUR_HEIGHT;
+        
+        return { event, top, height, startMinutes, endMinutes: startMinutes + durationMinutes };
+      });
+      
+      // Sort by start time
+      positioned.sort((a, b) => a.startMinutes - b.startMinutes);
+      
+      // Find overlapping groups and assign columns
+      const groups = [];
+      let currentGroup = [];
+      let groupEnd = 0;
+      
+      for (const item of positioned) {
+        if (item.startMinutes >= groupEnd && currentGroup.length > 0) {
+          groups.push([...currentGroup]);
+          currentGroup = [];
+          groupEnd = 0;
+        }
+        currentGroup.push(item);
+        groupEnd = Math.max(groupEnd, item.endMinutes);
+      }
+      if (currentGroup.length > 0) groups.push(currentGroup);
+      
+      // Assign columns within each group
+      for (const group of groups) {
+        const columns = [];
+        for (const item of group) {
+          let placed = false;
+          for (let col = 0; col < columns.length; col++) {
+            const lastInCol = columns[col];
+            if (item.startMinutes >= lastInCol.endMinutes) {
+              columns[col] = item;
+              item.column = col;
+              placed = true;
+              break;
+            }
+          }
+          if (!placed) {
+            item.column = columns.length;
+            columns.push(item);
+          }
+        }
+        const totalColumns = columns.length;
+        group.forEach(item => item.totalColumns = totalColumns);
+      }
+      
+      return positioned;
+    }
+
+    function navigateCalendar(direction) {
+      switch (calendarView) {
+        case 'month':
+          calendarDate.setMonth(calendarDate.getMonth() + direction);
+          break;
+        case 'week':
+          calendarDate.setDate(calendarDate.getDate() + (7 * direction));
+          break;
+        case 'day':
+          calendarDate.setDate(calendarDate.getDate() + direction);
+          break;
+      }
+      loadCalendarEvents();
+    }
+
+    function goToToday() {
+      calendarDate = new Date();
+      loadCalendarEvents();
+    }
+
+    function setCalendarView(view) {
+      calendarView = view;
+      document.querySelectorAll('.cal-view-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === view);
+      });
+      renderCalendar();
+    }
+
+    // ==========================================
+    // MEMORY (EPISODIC)
+    // ==========================================
+
+    let dailyLogs = [];
+    let memoryLoaded = false;
+    let longtermLoaded = false;
+
+    function formatDateFriendly(dateStr) {
+      const date = new Date(dateStr + 'T12:00:00');
+      const today = new Date();
+      const yesterday = new Date(today);
+      yesterday.setDate(yesterday.getDate() - 1);
+      
+      const isToday = date.toDateString() === today.toDateString();
+      const isYesterday = date.toDateString() === yesterday.toDateString();
+      
+      if (isToday) return 'Today';
+      if (isYesterday) return 'Yesterday';
+      
+      const diffDays = Math.floor((today - date) / (1000 * 60 * 60 * 24));
+      if (diffDays < 7) return `${diffDays} days ago`;
+      if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`;
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function formatDateDisplay(dateStr) {
+      const date = new Date(dateStr + 'T12:00:00');
+      const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+      const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+    }
+
+    async function fetchDailyLogsList() {
+      const response = await fetch(`${API_BASE}/api/memory/daily`);
+      if (!response.ok) throw new Error('Could not fetch daily logs list');
+      const data = await response.json();
+      return data.dates || [];
+    }
+
+    async function fetchDailyLog(dateStr) {
+      const response = await fetch(`${API_BASE}/memory/${dateStr}.md`);
+      if (!response.ok) return null;
+      return await response.text();
+    }
+
+    async function loadDailyLogs() {
+      if (memoryLoaded) return;
+      
+      const container = document.getElementById('daily-logs-view');
+      
+      try {
+        dailyLogs = await fetchDailyLogsList();
+        
+        if (dailyLogs.length === 0) {
+          container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📭</div><div>No daily logs found</div></div>';
+          return;
+        }
+        
+        const today = new Date().toISOString().split('T')[0];
+        
+        let html = '';
+        for (const dateStr of dailyLogs) {
+          const isToday = dateStr === today;
+          html += `
+            <div class="daily-log-item ${isToday ? 'is-today' : ''}" data-date="${dateStr}">
+              <div class="daily-log-header">
+                <div>
+                  <span class="daily-log-date">${formatDateDisplay(dateStr)}</span>
+                  <span class="daily-log-date-relative">${formatDateFriendly(dateStr)}</span>
+                </div>
+                <div class="daily-log-meta">
+                  <span class="daily-log-size" data-date="${dateStr}"></span>
+                  <span class="daily-log-toggle">▼</span>
+                </div>
+              </div>
+              <div class="daily-log-content">
+                <div class="markdown-body" data-date="${dateStr}">
+                  <div class="spinner" style="margin: 20px auto;"></div>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+        
+        container.innerHTML = html;
+        document.getElementById('memory-stats').textContent = `${dailyLogs.length} daily logs`;
+        
+        // Add click handlers
+        document.querySelectorAll('.daily-log-header').forEach(header => {
+          header.addEventListener('click', async () => {
+            const item = header.closest('.daily-log-item');
+            const dateStr = item.dataset.date;
+            const wasExpanded = item.classList.contains('expanded');
+            
+            // Collapse all others (accordion style - optional, remove if you want multi-expand)
+            // document.querySelectorAll('.daily-log-item.expanded').forEach(i => i.classList.remove('expanded'));
+            
+            item.classList.toggle('expanded');
+            
+            // Load content if expanding and not yet loaded
+            if (!wasExpanded) {
+              const contentDiv = item.querySelector(`.markdown-body[data-date="${dateStr}"]`);
+              if (contentDiv.querySelector('.spinner')) {
+                const content = await fetchDailyLog(dateStr);
+                if (content) {
+                  contentDiv.innerHTML = marked.parse(content);
+                  // Update size
+                  const sizeSpan = item.querySelector(`.daily-log-size[data-date="${dateStr}"]`);
+                  const lines = content.split('\n').length;
+                  sizeSpan.textContent = `${lines} lines`;
+                } else {
+                  contentDiv.innerHTML = '<p style="color:#666">Could not load content.</p>';
+                }
+              }
+            }
+          });
+        });
+        
+        memoryLoaded = true;
+        
+        // Auto-expand today if it exists
+        const todayItem = document.querySelector(`.daily-log-item[data-date="${today}"]`);
+        if (todayItem) {
+          todayItem.querySelector('.daily-log-header').click();
+        }
+        
+      } catch (err) {
+        container.innerHTML = `<div class="empty-state"><div style="color:#e94560">Error: ${err.message}</div></div>`;
+      }
+    }
+
+    async function loadLongtermMemory() {
+      if (longtermLoaded) return;
+      
+      const container = document.getElementById('longterm-view');
+      
+      try {
+        const response = await fetch(`${API_BASE}/memory/MEMORY.md`);
+        if (!response.ok) throw new Error('Could not load MEMORY.md');
+        
+        const content = await response.text();
+        container.innerHTML = `<div class="markdown-body">${marked.parse(content)}</div>`;
+        longtermLoaded = true;
+        
+      } catch (err) {
+        container.innerHTML = `<div class="empty-state"><div style="color:#e94560">Error: ${err.message}</div></div>`;
+      }
+    }
+
+    function switchMemorySubtab(subtab) {
+      document.querySelectorAll('.memory-subtab').forEach(t => t.classList.toggle('active', t.dataset.subtab === subtab));
+      document.querySelectorAll('.memory-view').forEach(v => v.classList.toggle('active', v.id === `${subtab === 'daily' ? 'daily-logs' : 'longterm'}-view`));
+      
+      if (subtab === 'daily') {
+        loadDailyLogs();
+      } else {
+        loadLongtermMemory();
+      }
+    }
+
+    // ==========================================
+    // TAB SWITCHING
+    // ==========================================
+    
+    function switchTab(tab) {
+      currentTab = tab;
+      closePanel();
+      
+      document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.id === `${tab}-tab`));
+      
+      if (tab === 'intents' && allIntents.length === 0) {
+        loadIntents();
+      }
+      
+      if (tab === 'memory' && !memoryLoaded) {
+        loadDailyLogs();
+      }
+    }
+
+    // ==========================================
+    // EVENT LISTENERS
+    // ==========================================
+    
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+      tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+    });
+
+    document.getElementById('entities-search').addEventListener('input', applyEntityFilters);
+    
+    document.querySelectorAll('#entities-controls .filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#entities-controls .filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        entityFilter = btn.dataset.type;
+        applyEntityFilters();
+      });
+    });
+
+    document.querySelectorAll('.legend-item').forEach(item => {
+      item.addEventListener('click', () => {
+        entityFilter = item.dataset.type;
+        document.querySelectorAll('#entities-controls .filter-btn').forEach(b => b.classList.toggle('active', b.dataset.type === entityFilter));
+        applyEntityFilters();
+      });
+    });
+
+    document.getElementById('intents-search').addEventListener('input', (e) => {
+      intentFilters.q = e.target.value;
+      loadIntents();
+    });
+
+    document.querySelectorAll('#intents-filters .filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const filter = btn.dataset.filter;
+        document.querySelectorAll(`#intents-filters .filter-btn[data-filter="${filter}"]`).forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        intentFilters[filter] = btn.dataset.value;
+        loadIntents();
+      });
+    });
+
+    document.getElementById('intents-refresh').addEventListener('click', loadIntents);
+    
+    document.getElementById('debug-toggle').addEventListener('click', () => {
+      intentDebugMode = !intentDebugMode;
+      document.getElementById('debug-toggle').classList.toggle('active', intentDebugMode);
+      renderIntentsTable(allIntents);
+    });
+    document.getElementById('panel-close').addEventListener('click', closePanel);
+    document.getElementById('panel-back').addEventListener('click', closePanel);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closePanel(); });
+
+    document.querySelectorAll('.memory-subtab').forEach(tab => {
+      tab.addEventListener('click', () => switchMemorySubtab(tab.dataset.subtab));
+    });
+
+    // Intents subtabs (List/Calendar)
+    document.querySelectorAll('.intents-subtab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.intents-subtab').forEach(t => t.classList.toggle('active', t === tab));
+        document.querySelectorAll('.intents-view').forEach(v => v.classList.toggle('active', v.id === `intents-${tab.dataset.subtab}-view`));
+        
+        if (tab.dataset.subtab === 'calendar' && calendarEvents.length === 0) {
+          loadCalendarEvents();
+        }
+      });
+    });
+
+    // Calendar controls
+    document.getElementById('cal-today').addEventListener('click', goToToday);
+    document.getElementById('cal-prev').addEventListener('click', () => navigateCalendar(-1));
+    document.getElementById('cal-next').addEventListener('click', () => navigateCalendar(1));
+    
+    document.querySelectorAll('.cal-view-btn').forEach(btn => {
+      btn.addEventListener('click', () => setCalendarView(btn.dataset.view));
+    });
+
+    // Tasks/Reminders toggle
+    document.getElementById('cal-show-tasks').addEventListener('change', (e) => {
+      calendarShowTasksReminders = e.target.checked;
+      loadCalendarEvents();
+    });
+
+    // Timezone selector
+    document.getElementById('cal-tz-select').addEventListener('change', (e) => {
+      calendarTimezone = e.target.value;
+      localStorage.setItem('calendarTimezone', calendarTimezone);
+      renderCalendar();
+    });
+
+    // Load saved timezone preference
+    const savedTZ = localStorage.getItem('calendarTimezone');
+    if (savedTZ) {
+      calendarTimezone = savedTZ;
+      document.getElementById('cal-tz-select').value = savedTZ;
+    }
+
+    // ==========================================
+    // INIT
+    // ==========================================
+    
+    initEntities();
+  </script>
+</body>
+</html>
