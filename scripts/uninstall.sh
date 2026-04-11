@@ -2,7 +2,7 @@
 # Hazel uninstaller
 #
 # Usage:
-#   curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/uninstall.sh | sh
+#   curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/uninstall.sh | bash
 #
 # What this does:
 #   1. Stops and removes the dashboard systemd service (if installed)

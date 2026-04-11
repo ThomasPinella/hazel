@@ -2,7 +2,7 @@
 # Hazel installer — one command to install everything.
 #
 # Usage:
-#   curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | sh
+#   curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash
 #
 # What this does:
 #   1. Installs uv (Python package manager) if not present

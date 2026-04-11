@@ -14,7 +14,7 @@
 One command. No Python setup required — the installer handles everything.
 
 ```bash
-curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash
 ```
 
 This installs [uv](https://docs.astral.sh/uv/) (if needed), which manages Python automatically, then installs Hazel and puts the `hazel` command on your PATH.
@@ -22,13 +22,13 @@ This installs [uv](https://docs.astral.sh/uv/) (if needed), which manages Python
 To install a specific version:
 
 ```bash
-HAZEL_VERSION=v0.1.4 curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | sh
+HAZEL_VERSION=v0.1.4 curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash
 ```
 
 ### Uninstall
 
 ```bash
-curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/uninstall.sh | sh
+curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/uninstall.sh | bash
 ```
 
 Removes the `hazel` binary, its isolated environment, and the dashboard service. Your data in `~/.hazel/` is kept unless you choose to delete it.
@@ -233,7 +233,7 @@ pip install hazel-ai
 
 ```bash
 # Re-run the install script (handles upgrades automatically)
-curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash
 
 # Or if installed via pip:
 pip install -U hazel-ai
