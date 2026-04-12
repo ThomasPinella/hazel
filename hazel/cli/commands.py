@@ -826,8 +826,8 @@ def _gateway_service_install(config_path: str | None, port: int | None) -> None:
         console.print("[red]ERROR:[/red] 'hazel' not found on PATH.")
         return
 
-    # Build the ExecStart command
-    exec_parts = [hazel_bin, "gateway"]
+    # Build the ExecStart command (--foreground so systemd runs the actual server)
+    exec_parts = [hazel_bin, "gateway", "--foreground"]
     if config_path:
         exec_parts.extend(["--config", config_path])
     if port is not None:
