@@ -351,9 +351,9 @@ def onboard(
         console.print(f"  1. Add your API key to [cyan]{config_path}[/cyan]")
         console.print("     Get one at: https://openrouter.ai/keys")
         console.print(f"  2. Chat: [cyan]{agent_cmd}[/cyan]")
-    dashboard_port = config.gateway.dashboard.port
-    if config.gateway.dashboard.enabled:
-        console.print(f"\n  Dashboard: [cyan]http://localhost:{dashboard_port}[/cyan]")
+    dashboard_cfg = config.gateway.dashboard
+    if dashboard_cfg.enabled:
+        console.print(f"\n  Dashboard: [cyan]http://{dashboard_cfg.host}:{dashboard_cfg.port}[/cyan]")
     console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/hazel#-chat-apps[/dim]")
 
 
@@ -488,28 +488,44 @@ WantedBy=default.target
 """
     service_path.write_text(service_content, encoding="utf-8")
 
+    # Enable user lingering (required for user services to survive logout, especially on Pi)
+    try:
+        subprocess.run(["loginctl", "enable-linger"], capture_output=True, timeout=10)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
     # Enable and start the service
     try:
-        subprocess.run(
+        reload = subprocess.run(
             ["systemctl", "--user", "daemon-reload"],
-            capture_output=True, timeout=15,
+            capture_output=True, text=True, timeout=15,
         )
-        subprocess.run(
+        if reload.returncode != 0:
+            console.print(f"[yellow]![/yellow] systemctl --user daemon-reload failed: {reload.stderr.strip()[:200]}")
+            console.print(f"  Start manually: [cyan]DASHBOARD_HOST={host} DASHBOARD_PORT={port} node {canvas_dest / 'dashboard-server.js'}[/cyan]")
+            return
+
+        enable = subprocess.run(
             ["systemctl", "--user", "enable", "--now", "hazel-dashboard"],
-            capture_output=True, timeout=15,
+            capture_output=True, text=True, timeout=15,
         )
+        if enable.returncode != 0:
+            console.print(f"[yellow]![/yellow] Could not enable dashboard service: {enable.stderr.strip()[:200]}")
+            console.print(f"  Start manually: [cyan]DASHBOARD_HOST={host} DASHBOARD_PORT={port} node {canvas_dest / 'dashboard-server.js'}[/cyan]")
+            return
+
         # Verify it started
         check = subprocess.run(
             ["systemctl", "--user", "is-active", "hazel-dashboard"],
             capture_output=True, text=True, timeout=10,
         )
         if check.stdout.strip() == "active":
-            console.print(f"[green]\u2713[/green] Dashboard running at [cyan]http://localhost:{port}[/cyan]")
+            console.print(f"[green]\u2713[/green] Dashboard running at [cyan]http://{host}:{port}[/cyan]")
         else:
             console.print(f"[yellow]![/yellow] Service installed but not active. Check with: systemctl --user status hazel-dashboard")
     except FileNotFoundError:
         console.print("[yellow]![/yellow] systemctl not found — start the dashboard manually:")
-        console.print(f"  [cyan]DASHBOARD_PORT={port} node {canvas_dest / 'dashboard-server.js'}[/cyan]")
+        console.print(f"  [cyan]DASHBOARD_HOST={host} DASHBOARD_PORT={port} node {canvas_dest / 'dashboard-server.js'}[/cyan]")
     except Exception as e:
         console.print(f"[yellow]![/yellow] Could not start service: {e}")
         console.print(f"  Start manually: [cyan]DASHBOARD_PORT={port} node {canvas_dest / 'dashboard-server.js'}[/cyan]")
@@ -856,9 +872,30 @@ WantedBy=default.target
 """
     service_path.write_text(service_content, encoding="utf-8")
 
+    # Enable user lingering (required for user services to survive logout, especially on Pi)
     try:
-        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, timeout=15)
-        subprocess.run(["systemctl", "--user", "enable", "--now", "hazel-gateway"], capture_output=True, timeout=15)
+        subprocess.run(["loginctl", "enable-linger"], capture_output=True, timeout=10)
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    try:
+        reload = subprocess.run(
+            ["systemctl", "--user", "daemon-reload"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if reload.returncode != 0:
+            console.print(f"[yellow]![/yellow] systemctl --user daemon-reload failed: {reload.stderr.strip()[:200]}")
+            console.print(f"  Run manually: [cyan]{exec_start}[/cyan]")
+            return
+
+        enable = subprocess.run(
+            ["systemctl", "--user", "enable", "--now", "hazel-gateway"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if enable.returncode != 0:
+            console.print(f"[yellow]![/yellow] Could not enable gateway service: {enable.stderr.strip()[:200]}")
+            console.print(f"  Run manually: [cyan]{exec_start}[/cyan]")
+            return
 
         check = subprocess.run(
             ["systemctl", "--user", "is-active", "hazel-gateway"],
