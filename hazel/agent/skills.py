@@ -167,10 +167,10 @@ class SkillsLoader:
         return content
 
     def _parse_hazel_metadata(self, raw: str) -> dict:
-        """Parse skill metadata JSON from frontmatter."""
+        """Parse skill metadata JSON from frontmatter (supports legacy 'openclaw' key)."""
         try:
             data = json.loads(raw)
-            return data.get("hazel", {}) if isinstance(data, dict) else {}
+            return data.get("hazel", data.get("openclaw", {})) if isinstance(data, dict) else {}
         except (json.JSONDecodeError, TypeError):
             return {}
 
