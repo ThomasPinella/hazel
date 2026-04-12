@@ -1288,6 +1288,80 @@ def status():
                 console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
 
 
+@app.command()
+def update(
+    version: str | None = typer.Option(None, "--version", "-V", help="Install a specific version (e.g. v0.1.5)"),
+):
+    """Update Hazel to the latest version."""
+    import subprocess
+    import shutil
+
+    uv = shutil.which("uv")
+    if not uv:
+        console.print("[red]ERROR:[/red] uv not found. Reinstall with:")
+        console.print("  [cyan]curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash[/cyan]")
+        raise typer.Exit(1)
+
+    console.print(f"{__logo__} Updating Hazel...\n")
+    console.print(f"[dim]Current version: {__version__}[/dim]")
+
+    # Fetch the wheel URL from GitHub releases
+    import urllib.request
+    import json
+
+    repo = "ThomasPinella/hazel"
+    if version:
+        tag = version if version.startswith("v") else f"v{version}"
+        api_url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
+    else:
+        api_url = f"https://api.github.com/repos/{repo}/releases/latest"
+
+    try:
+        with urllib.request.urlopen(api_url, timeout=15) as resp:
+            release = json.loads(resp.read())
+    except Exception as e:
+        console.print(f"[red]ERROR:[/red] Could not fetch release: {e}")
+        raise typer.Exit(1)
+
+    wheel_url = None
+    for asset in release.get("assets", []):
+        if asset["name"].endswith(".whl"):
+            wheel_url = asset["browser_download_url"]
+            break
+
+    if not wheel_url:
+        console.print("[red]ERROR:[/red] No .whl found in release assets.")
+        raise typer.Exit(1)
+
+    release_tag = release.get("tag_name", "unknown")
+    console.print(f"[dim]Latest version: {release_tag}[/dim]\n")
+
+    # Uninstall and reinstall
+    subprocess.run([uv, "tool", "uninstall", "hazel-ai"], capture_output=True)
+    result = subprocess.run(
+        [uv, "tool", "install", f"hazel-ai @ {wheel_url}"],
+        capture_output=True, text=True,
+    )
+
+    if result.returncode != 0:
+        console.print(f"[red]ERROR:[/red] {result.stderr.strip()}")
+        raise typer.Exit(1)
+
+    console.print(f"[green]✓[/green] Updated to {release_tag}")
+
+    # Restart gateway service if running
+    try:
+        check = subprocess.run(
+            ["systemctl", "--user", "is-active", "hazel-gateway"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if check.stdout.strip() == "active":
+            subprocess.run(["systemctl", "--user", "restart", "hazel-gateway"], capture_output=True, timeout=15)
+            console.print("[green]✓[/green] Gateway service restarted")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+
 # ============================================================================
 # OAuth Login
 # ============================================================================
