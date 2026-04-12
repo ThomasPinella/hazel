@@ -153,14 +153,13 @@ find_wheel_url() {
 # Step 4: Install Hazel
 # ---------------------------------------------------------------------------
 install_hazel() {
-    # Check if already installed
+    info "Installing Hazel..."
     if uv tool list 2>/dev/null | grep -q "hazel-ai"; then
         warn "hazel-ai is already installed. Upgrading..."
-        uv tool uninstall hazel-ai 2>/dev/null || true
+        uv tool install --force "hazel-ai @ $WHEEL_URL"
+    else
+        uv tool install "hazel-ai @ $WHEEL_URL"
     fi
-
-    info "Installing Hazel..."
-    uv tool install "hazel-ai @ $WHEEL_URL"
 }
 
 # ---------------------------------------------------------------------------
