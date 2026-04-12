@@ -616,8 +616,18 @@ def gateway(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    foreground: bool = typer.Option(False, "--foreground", "--fg", help="Run in the foreground instead of as a background service"),
+    stop: bool = typer.Option(False, "--stop", help="Stop the background gateway service"),
 ):
-    """Start the Hazel gateway."""
+    """Start the Hazel gateway (runs as a background service by default)."""
+    if stop:
+        _gateway_service_stop()
+        return
+
+    if not foreground:
+        _gateway_service_install(config, port)
+        return
+
     from hazel.agent.loop import AgentLoop
     from hazel.bus.queue import MessageBus
     from hazel.channels.manager import ChannelManager
@@ -797,6 +807,83 @@ def gateway(
 
     asyncio.run(run())
 
+
+def _gateway_service_install(config_path: str | None, port: int | None) -> None:
+    """Install and start the gateway as a systemd user service."""
+    import shutil
+    import subprocess
+
+    hazel_bin = shutil.which("hazel")
+    if not hazel_bin:
+        console.print("[red]ERROR:[/red] 'hazel' not found on PATH.")
+        return
+
+    # Build the ExecStart command
+    exec_parts = [hazel_bin, "gateway"]
+    if config_path:
+        exec_parts.extend(["--config", config_path])
+    if port is not None:
+        exec_parts.extend(["--port", str(port)])
+    exec_start = " ".join(exec_parts)
+
+    systemd_dir = Path.home() / ".config" / "systemd" / "user"
+    systemd_dir.mkdir(parents=True, exist_ok=True)
+    service_path = systemd_dir / "hazel-gateway.service"
+
+    service_content = f"""[Unit]
+Description=Hazel Gateway
+After=network.target
+
+[Service]
+Type=simple
+ExecStart={exec_start}
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=%h
+
+[Install]
+WantedBy=default.target
+"""
+    service_path.write_text(service_content, encoding="utf-8")
+
+    try:
+        subprocess.run(["systemctl", "--user", "daemon-reload"], capture_output=True, timeout=15)
+        subprocess.run(["systemctl", "--user", "enable", "--now", "hazel-gateway"], capture_output=True, timeout=15)
+
+        check = subprocess.run(
+            ["systemctl", "--user", "is-active", "hazel-gateway"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if check.stdout.strip() == "active":
+            console.print("[green]✓[/green] Gateway is running in the background.")
+            console.print("  [dim]Status:[/dim]   systemctl --user status hazel-gateway")
+            console.print("  [dim]Logs:[/dim]     journalctl --user -u hazel-gateway -f")
+            console.print("  [dim]Stop:[/dim]     hazel gateway --stop")
+            console.print("  [dim]Restart:[/dim]  systemctl --user restart hazel-gateway")
+        else:
+            console.print("[yellow]![/yellow] Service installed but not active.")
+            console.print("  Check: [cyan]systemctl --user status hazel-gateway[/cyan]")
+    except FileNotFoundError:
+        console.print("[yellow]![/yellow] systemctl not found — cannot run as daemon on this system.")
+        console.print("  Use [cyan]nohup hazel gateway &[/cyan] or run inside tmux/screen instead.")
+    except Exception as e:
+        console.print(f"[yellow]![/yellow] Could not start service: {e}")
+
+
+def _gateway_service_stop() -> None:
+    """Stop and disable the gateway systemd user service."""
+    import subprocess
+
+    try:
+        subprocess.run(["systemctl", "--user", "stop", "hazel-gateway"], capture_output=True, timeout=15)
+        subprocess.run(["systemctl", "--user", "disable", "hazel-gateway"], capture_output=True, timeout=15)
+        console.print("[green]✓[/green] Gateway service stopped and disabled.")
+    except FileNotFoundError:
+        console.print("[yellow]![/yellow] systemctl not found.")
+    except Exception as e:
+        console.print(f"[red]ERROR:[/red] {e}")
 
 
 
