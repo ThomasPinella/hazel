@@ -131,7 +131,7 @@ def _get_questionary():
 # ── Step 1: LLM Provider ───────────────────────────────────────────────────
 
 
-def _step_provider(config: Config) -> bool:
+def _step_provider(config: Config, total_steps: int = 2) -> bool:
     """Configure the LLM provider. Returns False if the user cancelled."""
     q = _get_questionary()
 
@@ -139,7 +139,7 @@ def _step_provider(config: Config) -> bool:
         console.print()
         console.print(
             Panel(
-                "[bold]Step 1 of 2 — LLM Provider[/bold]\n\n"
+                f"[bold]Step 1 of {total_steps} — LLM Provider[/bold]\n\n"
                 f"By default, Hazel uses [cyan]MiniMax (minimax-m2.7)[/cyan] — a powerful\n"
                 "and affordable model with a 200k context window.\n\n"
                 "You just need a MiniMax API key to get started.",
@@ -207,7 +207,7 @@ def _step_provider_advanced(config: Config) -> None:
 _GO_BACK = "go_back"
 
 
-def _step_channel(config: Config) -> bool | str:
+def _step_channel(config: Config, total_steps: int = 2) -> bool | str:
     """Configure a chat channel.
 
     Returns True on success, False if cancelled, or _GO_BACK to return to step 1.
@@ -217,7 +217,7 @@ def _step_channel(config: Config) -> bool | str:
     console.print()
     console.print(
         Panel(
-            "[bold]Step 2 of 2 — Chat Channel[/bold]\n\n"
+            f"[bold]Step 2 of {total_steps} — Chat Channel[/bold]\n\n"
             "Hazel connects to chat apps so you can talk to your AI\n"
             "from your phone. [cyan]Telegram[/cyan] is the easiest to set up.",
             border_style="blue",
@@ -325,11 +325,12 @@ def _clear_pending_instructions(path) -> None:
         p.unlink()
 
 
-def _step_setup_skills(config: Config, auto_instructions: str | None = None) -> None:
-    """Optionally run pasted setup instructions through the agent.
+def _step_setup_skills(config: Config, auto_instructions: str | None = None,
+                       total_steps: int = 5) -> None:
+    """Run skills setup instructions through the agent.
 
     If *auto_instructions* is provided (from a setup config token),
-    the user is offered to run them now or save for later.
+    runs them automatically with no prompts.
     """
     from hazel.cli.commands import _run_setup_skills
     from hazel.config.paths import get_pending_setup_skills_path
@@ -337,84 +338,30 @@ def _step_setup_skills(config: Config, auto_instructions: str | None = None) -> 
     pending_path = get_pending_setup_skills_path()
 
     if auto_instructions:
-        # Always save so the user can run later if they skip
-        _save_pending_instructions(pending_path, auto_instructions)
-
-        q = _get_questionary()
         console.print()
         console.print(
             Panel(
-                "[bold]Setup Skills[/bold]\n\n"
-                "Your install config includes skills setup instructions.\n"
-                "Hazel can run them now to install skills and configure\n"
-                "your workspace.",
+                f"[bold]Step 3 of {total_steps} — Setup Skills[/bold]\n\n"
+                "Installing skills from your config...",
                 border_style="blue",
             )
         )
-
         console.print()
-        choice = q.select(
-            "Run skills setup now?",
-            choices=[
-                "Yes — run skills setup now",
-                "Skip — I'll do this later with: hazel setup-skills",
-            ],
-            default="Yes — run skills setup now",
-            qmark=">",
-        ).ask()
-
-        if choice is None or "Skip" in choice:
-            console.print("[dim]Skills setup instructions saved. Run later with: [cyan]hazel setup-skills[/cyan][/dim]")
-            return
-
-        console.print()
-        console.print("[dim]Running skills setup...[/dim]")
         _run_setup_skills(config, auto_instructions)
         _clear_pending_instructions(pending_path)
+        console.print("[green]✓[/green] Skills setup complete")
         return
 
-    q = _get_questionary()
-
-    console.print()
-    console.print(
-        Panel(
-            "[bold]Setup Skills (optional)[/bold]\n\n"
-            "If you have setup instructions, you can paste them here\n"
-            "and Hazel will run them to install skills and configure\n"
-            "your workspace.",
-            border_style="blue",
-        )
-    )
-
-    console.print()
-    has_instructions = q.confirm(
-        "Do you have setup instructions to paste?",
-        default=False,
-        qmark=">",
-    ).ask()
-
-    if not has_instructions:
-        console.print("[dim]Skipped. You can always run this later with: hazel setup-skills[/dim]")
-        return
-
-    console.print()
-    console.print("Paste your setup instructions below and press [bold]Enter[/bold]:\n")
-    instructions = q.text("Instructions:", qmark=">", multiline=False).ask()
-    if instructions is None:
-        console.print("\n[yellow]Cancelled.[/yellow]")
-        return
-
-    if not instructions.strip():
-        console.print("[yellow]No instructions provided, skipping.[/yellow]")
-        return
-
-    _run_setup_skills(config, instructions)
+    # No config token — skip entirely during quickstart
+    # (user can run `hazel setup-skills` later)
+    return
 
 
-def run_quickstart(config: Config) -> tuple[Config, bool]:
+def run_quickstart(config: Config, has_setup_config: bool = False) -> tuple[Config, bool]:
     """Run the quickstart wizard.
 
     Returns (config, should_save) tuple.
+    *has_setup_config* changes step count and intro text.
     """
     if not sys.stdin.isatty():
         raise RuntimeError(
@@ -425,13 +372,25 @@ def run_quickstart(config: Config) -> tuple[Config, bool]:
 
     from hazel import __logo__, __version__
 
+    total_steps = 5 if has_setup_config else 2
+
+    steps_list = (
+        "  1. Set up your LLM provider (AI brain)\n"
+        "  2. Connect a chat channel (Telegram)"
+    )
+    if has_setup_config:
+        steps_list += (
+            "\n  3. Install skills from your config"
+            "\n  4. Configure actions & workflows"
+            "\n  5. Chat with your new assistant"
+        )
+
     console.print()
     console.print(
         Panel(
             f"{__logo__} [bold cyan]Hazel Quickstart[/bold cyan]  [dim]v{__version__}[/dim]\n\n"
-            "Let's get you up and running in just two steps:\n"
-            "  1. Set up your LLM provider (AI brain)\n"
-            "  2. Connect a chat channel (Telegram)",
+            f"Let's get you up and running:\n"
+            f"{steps_list}",
             border_style="green",
         )
     )
@@ -439,12 +398,12 @@ def run_quickstart(config: Config) -> tuple[Config, bool]:
     step = 1
     while step <= 2:
         if step == 1:
-            if not _step_provider(config):
+            if not _step_provider(config, total_steps=total_steps):
                 console.print("[yellow]Setup cancelled.[/yellow]")
                 return config, False
             step = 2
         elif step == 2:
-            result = _step_channel(config)
+            result = _step_channel(config, total_steps=total_steps)
             if result == _GO_BACK:
                 step = 1
                 continue
@@ -453,25 +412,15 @@ def run_quickstart(config: Config) -> tuple[Config, bool]:
                 return config, False
             step = 3  # done
 
-    # Done with core setup — save first so setup-skills has a working provider
-    console.print()
-    console.print(
-        Panel(
-            "[bold green]Core setup complete![/bold green]\n\n"
-            "Want to customize more settings? Run:\n"
-            "  [cyan]hazel onboard --wizard[/cyan]",
-            border_style="green",
-        )
-    )
-
     return config, True
 
 
-def _step_setup_user_actions(config: Config, auto_instructions: str | None = None) -> None:
-    """Optionally run an interactive setup session for user actions.
+def _step_setup_user_actions(config: Config, auto_instructions: str | None = None,
+                             total_steps: int = 5) -> None:
+    """Run user actions setup through the agent.
 
     If *auto_instructions* is provided (from a setup config token),
-    the user is offered to run them now or save for later.
+    runs them automatically with no prompts.
     """
     from hazel.cli.commands import _run_setup_user_actions
     from hazel.config.paths import get_pending_setup_user_actions_path
@@ -479,94 +428,44 @@ def _step_setup_user_actions(config: Config, auto_instructions: str | None = Non
     pending_path = get_pending_setup_user_actions_path()
 
     if auto_instructions:
-        # Always save so the user can run later if they skip
-        _save_pending_instructions(pending_path, auto_instructions)
-
-        q = _get_questionary()
         console.print()
         console.print(
             Panel(
-                "[bold]Setup User Actions[/bold]\n\n"
-                "Your install config includes user action instructions.\n"
-                "Hazel can run an interactive setup session now to\n"
-                "configure your actions, workflows, and automations.",
+                f"[bold]Step 4 of {total_steps} — Setup User Actions[/bold]\n\n"
+                "Configuring actions and workflows from your config...",
                 border_style="blue",
             )
         )
-
         console.print()
-        choice = q.select(
-            "Run user actions setup now?",
-            choices=[
-                "Yes — run user actions setup now",
-                "Skip — I'll do this later with: hazel setup-user-actions",
-            ],
-            default="Yes — run user actions setup now",
-            qmark=">",
-        ).ask()
-
-        if choice is None or "Skip" in choice:
-            console.print("[dim]User actions instructions saved. Run later with: [cyan]hazel setup-user-actions[/cyan][/dim]")
-            return
-
-        console.print()
-        console.print("[dim]Starting user actions setup...[/dim]")
         _run_setup_user_actions(config, auto_instructions)
         _clear_pending_instructions(pending_path)
+        console.print("[green]✓[/green] User actions setup complete")
         return
 
-    q = _get_questionary()
-
-    console.print()
-    console.print(
-        Panel(
-            "[bold]Setup User Actions (optional)[/bold]\n\n"
-            "If you have instructions for setting up actions, workflows,\n"
-            "or automations, paste them here to start an interactive\n"
-            "setup session with Hazel.",
-            border_style="blue",
-        )
-    )
-
-    console.print()
-    has_instructions = q.confirm(
-        "Do you have user action instructions to set up?",
-        default=False,
-        qmark=">",
-    ).ask()
-
-    if not has_instructions:
-        console.print("[dim]Skipped. You can always run this later with: hazel setup-user-actions[/dim]")
-        return
-
-    console.print()
-    console.print("Paste your instructions below and press [bold]Enter[/bold]:\n")
-    instructions = q.text("Instructions:", qmark=">", multiline=False).ask()
-    if instructions is None:
-        console.print("\n[yellow]Cancelled.[/yellow]")
-        return
-
-    if not instructions.strip():
-        console.print("[yellow]No instructions provided, skipping.[/yellow]")
-        return
-
-    _run_setup_user_actions(config, instructions)
+    # No config token — skip entirely during quickstart
+    # (user can run `hazel setup-user-actions` later)
+    return
 
 
 def run_quickstart_post_save(
     config: Config, setup_config_data: dict[str, str] | None = None
 ) -> None:
-    """Run optional post-save setup steps.
+    """Run post-save setup steps (skills + user actions).
 
     Called by the quickstart command after saving config, so the agent
     has a working provider available.
 
     If *setup_config_data* is provided (from a --setup-config token),
-    the skillsSetup and userActions values are fed directly, skipping
-    interactive prompts.
+    the skillsSetup and userActions values are fed directly and run
+    automatically with no prompts.  Without a config token, these
+    steps are skipped (user can run them later via standalone commands).
     """
     skills_instructions = (setup_config_data or {}).get("skillsSetup") or None
     actions_instructions = (setup_config_data or {}).get("userActions") or None
 
-    _step_setup_skills(config, auto_instructions=skills_instructions)
-    _step_setup_user_actions(config, auto_instructions=actions_instructions)
+    total_steps = 5 if (skills_instructions or actions_instructions) else 2
+
+    _step_setup_skills(config, auto_instructions=skills_instructions,
+                       total_steps=total_steps)
+    _step_setup_user_actions(config, auto_instructions=actions_instructions,
+                             total_steps=total_steps)

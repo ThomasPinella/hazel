@@ -451,8 +451,10 @@ def quickstart(
     if workspace:
         cfg.agents.defaults.workspace = workspace
 
+    has_config = setup_config_data is not None
+
     try:
-        cfg, should_save = run_quickstart(cfg)
+        cfg, should_save = run_quickstart(cfg, has_setup_config=has_config)
     except Exception as e:
         console.print(f"[red]✗[/red] Error during quickstart: {e}")
         if setup_config_data:
@@ -490,23 +492,52 @@ def quickstart(
     # Dashboard setup
     _setup_dashboard(cfg)
 
-    # Optional setup-skills + setup-user-actions (auto-fed if setup config present)
+    # Steps 3 & 4: setup-skills + setup-user-actions (auto-run if config token present)
     run_quickstart_post_save(cfg, setup_config_data=setup_config_data)
 
-    agent_cmd = 'hazel agent -m "Hello!"'
-    gateway_cmd = "hazel gateway"
-    if config:
-        agent_cmd += f" --config {config_path}"
-        gateway_cmd += f" --config {config_path}"
+    # Step 5 (with config) or final message (without): launch interactive agent
+    if has_config:
+        from rich.panel import Panel
 
-    console.print(f"\n{__logo__} Hazel is ready!")
-    console.print("\nNext steps:")
-    console.print(f"  1. Chat: [cyan]{agent_cmd}[/cyan]")
-    console.print(f"  2. Start gateway: [cyan]{gateway_cmd}[/cyan]")
+        total_steps = 5
+        console.print()
+        console.print(
+            Panel(
+                f"[bold]Step 5 of {total_steps} — Chat with Hazel[/bold]\n\n"
+                "Setup complete! Starting an interactive chat session.\n"
+                "Type [bold]exit[/bold] or press [bold]Ctrl+C[/bold] to quit.",
+                border_style="green",
+            )
+        )
+        console.print()
+        # Launch interactive agent directly
+        _run_agent_interactive(cfg, config_path if config else None)
+    else:
+        gateway_cmd = "hazel gateway"
+        if config:
+            gateway_cmd += f" --config {config_path}"
 
-    dashboard_cfg = cfg.gateway.dashboard
-    if dashboard_cfg.enabled:
-        console.print(f"\n  Dashboard: [cyan]http://{dashboard_cfg.host}:{dashboard_cfg.port}[/cyan]")
+        console.print(f"\n{__logo__} Hazel is ready!")
+        console.print("\nNext steps:")
+        console.print(f"  Chat:          [cyan]hazel agent[/cyan]")
+        console.print(f"  Start gateway: [cyan]{gateway_cmd}[/cyan]")
+
+        dashboard_cfg = cfg.gateway.dashboard
+        if dashboard_cfg.enabled:
+            console.print(f"\n  Dashboard: [cyan]http://{dashboard_cfg.host}:{dashboard_cfg.port}[/cyan]")
+
+
+def _run_agent_interactive(cfg: Config, config_path: Path | None = None) -> None:
+    """Launch hazel agent in interactive mode (replaces the current process)."""
+    import subprocess
+
+    cmd = ["hazel", "agent"]
+    if config_path:
+        cmd += ["--config", str(config_path)]
+    try:
+        subprocess.run(cmd)
+    except KeyboardInterrupt:
+        pass
 
 
 def _run_setup_skills(cfg: Config, instructions: str) -> None:
