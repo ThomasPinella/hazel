@@ -125,13 +125,94 @@ def _get_db(workspace: Path) -> sqlite3.Connection:
         except sqlite3.OperationalError:
             pass  # column already exists
 
+    # Data migration: normalise all datetime columns to UTC Z-suffix.
+    # Uses PRAGMA user_version as a lightweight migration counter.
+    user_version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if user_version < 1:
+        _migrate_timestamps_to_utc(conn)
+        conn.execute("PRAGMA user_version = 1")
+
     conn.commit()
     _db_cache[db_path] = conn
     return conn
 
 
+def _migrate_timestamps_to_utc(conn: sqlite3.Connection) -> None:
+    """One-time migration: normalise stored timestamps to UTC ``Z`` suffix."""
+    dt_cols = [
+        "due_at", "start_at", "end_at", "snooze_until",
+        "last_fired_at", "created_at", "updated_at",
+    ]
+    col_list = ", ".join(dt_cols)
+    rows = conn.execute(f"SELECT id, {col_list} FROM intents").fetchall()
+    for row in rows:
+        updates: dict[str, str] = {}
+        for col in dt_cols:
+            val = row[col]
+            if val and not val.endswith("Z"):
+                normalized = _normalize_to_utc(val)
+                if normalized and normalized != val:
+                    updates[col] = normalized
+        if updates:
+            set_clause = ", ".join(f"{k} = ?" for k in updates)
+            conn.execute(
+                f"UPDATE intents SET {set_clause} WHERE id = ?",
+                [*updates.values(), row["id"]],
+            )
+
+    # Also normalise intent_links.created_at
+    link_rows = conn.execute(
+        "SELECT id, created_at FROM intent_links "
+        "WHERE created_at IS NOT NULL AND created_at NOT LIKE '%Z'"
+    ).fetchall()
+    for row in link_rows:
+        normalized = _normalize_to_utc(row["created_at"])
+        if normalized and normalized != row["created_at"]:
+            conn.execute(
+                "UPDATE intent_links SET created_at = ? WHERE id = ?",
+                (normalized, row["id"]),
+            )
+
+    conn.commit()
+    logger.info("Migrated intent timestamps to UTC Z-suffix")
+
+
 def _now_utc() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+# Datetime columns that must be stored as UTC with Z suffix.
+_DT_FIELDS = frozenset(
+    {"due_at", "start_at", "end_at", "snooze_until", "last_fired_at"}
+)
+
+
+def _normalize_to_utc(val: str | None) -> str | None:
+    """Convert an ISO8601 timestamp to UTC with ``Z`` suffix.
+
+    SQLite compares timestamps as raw strings, so mixed offset formats
+    (``-07:00`` vs ``Z`` vs ``+00:00``) produce wrong ordering.  Normalising
+    everything to ``…Z`` keeps string comparison correct.
+    """
+    if val is None:
+        return None
+    try:
+        dt = datetime.fromisoformat(val)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(timezone.utc)
+        else:
+            # Assume naive timestamps are already UTC
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    except (ValueError, TypeError):
+        return val
+
+
+def _normalize_dt_kwargs(kwargs: dict[str, Any], fields: set[str] | frozenset[str]) -> None:
+    """In-place normalise datetime values in *kwargs* to UTC Z-suffix."""
+    for key in fields:
+        if key in kwargs and kwargs[key] is not None:
+            kwargs[key] = _normalize_to_utc(kwargs[key])
 
 
 def _row_to_dict(row: sqlite3.Row | None) -> dict | None:
@@ -424,6 +505,8 @@ class IntentCreateTool(Tool):
         now = _now_utc()
         intent_id = _generate_ulid()
 
+        _normalize_dt_kwargs(kwargs, _DT_FIELDS)
+
         conn.execute(
             "INSERT INTO intents "
             "(id, type, title, body, status, priority, estimate_minutes, timezone, "
@@ -536,6 +619,8 @@ class IntentUpdateTool(Tool):
         )
         if not existing:
             return _json_result({"status": "error", "error": "Intent not found", "id": intent_id})
+
+        _normalize_dt_kwargs(kwargs, _DT_FIELDS)
 
         updatable = [
             "title", "body", "status", "priority", "estimate_minutes", "timezone",
@@ -712,16 +797,16 @@ class IntentSearchTool(Tool):
 
         if kwargs.get("due_from"):
             conditions.append("intents.due_at >= ?")
-            values.append(kwargs["due_from"])
+            values.append(_normalize_to_utc(kwargs["due_from"]))
         if kwargs.get("due_to"):
             conditions.append("intents.due_at <= ?")
-            values.append(kwargs["due_to"])
+            values.append(_normalize_to_utc(kwargs["due_to"]))
         if kwargs.get("start_from"):
             conditions.append("intents.start_at >= ?")
-            values.append(kwargs["start_from"])
+            values.append(_normalize_to_utc(kwargs["start_from"]))
         if kwargs.get("start_to"):
             conditions.append("intents.start_at <= ?")
-            values.append(kwargs["start_to"])
+            values.append(_normalize_to_utc(kwargs["start_to"]))
 
         join_clause = ""
         if kwargs.get("entity_path") or kwargs.get("entity_id"):
@@ -793,9 +878,10 @@ class IntentCompleteTool(Tool):
                 intent["rrule"], datetime.fromisoformat(intent["due_at"])
             )
             if next_due:
+                next_due_utc = _normalize_to_utc(next_due.isoformat())
                 conn.execute(
                     "UPDATE intents SET due_at = ?, updated_at = ?, status = 'active' WHERE id = ?",
-                    (next_due.isoformat(), now, intent_id),
+                    (next_due_utc, now, intent_id),
                 )
                 conn.commit()
                 updated = _row_to_dict(
@@ -862,9 +948,10 @@ class IntentSnoozeTool(Tool):
         if not intent:
             return _json_result({"status": "error", "error": "Intent not found", "id": intent_id})
 
+        snooze_until = _normalize_to_utc(kwargs["snooze_until"])
         conn.execute(
             "UPDATE intents SET snooze_until = ?, status = 'snoozed', updated_at = ? WHERE id = ?",
-            (kwargs["snooze_until"], now, intent_id),
+            (snooze_until, now, intent_id),
         )
         conn.commit()
         updated = _row_to_dict(
@@ -978,8 +1065,8 @@ class IntentListDueTool(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         conn = _get_db(self._workspace)
-        ws = kwargs["window_start"]
-        we = kwargs["window_end"]
+        ws = _normalize_to_utc(kwargs["window_start"]) or kwargs["window_start"]
+        we = _normalize_to_utc(kwargs["window_end"]) or kwargs["window_end"]
         include_overdue = kwargs.get("include_overdue", True)
         limit = kwargs.get("limit", 200)
 

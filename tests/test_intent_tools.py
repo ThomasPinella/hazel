@@ -1,6 +1,7 @@
 """Tests for the intent tools (task/reminder/event/followup management)."""
 
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -15,10 +16,12 @@ from hazel.agent.tools.intents import (
     IntentSnoozeTool,
     IntentSyncLinksTool,
     IntentUpdateTool,
+    _SCHEMA_SQL,
     _compute_next_occurrence,
     _format_due_date,
     _generate_ulid,
     _get_db,
+    _normalize_to_utc,
     _parse_entity_card,
 )
 
@@ -807,3 +810,299 @@ class TestToolSchemas:
         assert schema["type"] == "function"
         assert "function" in schema
         assert schema["function"]["name"] == tool.name
+
+
+# ---------------------------------------------------------------------------
+# Timezone normalization (UTC Z-suffix)
+# ---------------------------------------------------------------------------
+
+
+class TestNormalizeToUtc:
+    """Unit tests for the _normalize_to_utc helper."""
+
+    def test_z_suffix_is_idempotent(self):
+        assert _normalize_to_utc("2026-04-01T14:00:00Z") == "2026-04-01T14:00:00Z"
+
+    def test_plus_zero_offset(self):
+        assert _normalize_to_utc("2026-04-01T14:00:00+00:00") == "2026-04-01T14:00:00Z"
+
+    def test_negative_offset(self):
+        # -07:00 → 14+7 = 21:00 UTC
+        assert _normalize_to_utc("2026-04-01T14:00:00-07:00") == "2026-04-01T21:00:00Z"
+
+    def test_positive_offset(self):
+        # +05:30 → 14:00 - 5:30 = 08:30 UTC
+        assert _normalize_to_utc("2026-04-01T14:00:00+05:30") == "2026-04-01T08:30:00Z"
+
+    def test_date_rolls_forward(self):
+        # 23:00 -07:00 → 06:00 next day UTC
+        assert _normalize_to_utc("2026-04-01T23:00:00-07:00") == "2026-04-02T06:00:00Z"
+
+    def test_date_rolls_backward(self):
+        # 02:00 +05:30 → 20:30 previous day UTC
+        assert _normalize_to_utc("2026-04-02T02:00:00+05:30") == "2026-04-01T20:30:00Z"
+
+    def test_naive_assumed_utc(self):
+        assert _normalize_to_utc("2026-04-01T14:00:00") == "2026-04-01T14:00:00Z"
+
+    def test_none_returns_none(self):
+        assert _normalize_to_utc(None) is None
+
+    def test_invalid_returns_original(self):
+        assert _normalize_to_utc("not-a-date") == "not-a-date"
+
+    def test_fractional_seconds_truncated(self):
+        assert _normalize_to_utc("2026-04-01T14:00:00.123456Z") == "2026-04-01T14:00:00Z"
+
+
+class TestTimezoneNormalizationInTools:
+    """Verify all tools normalize offset timestamps to UTC Z-suffix on storage."""
+
+    async def test_create_normalizes_offset_due_at(self, tmp_path):
+        r = json.loads(
+            await IntentCreateTool(tmp_path).execute(
+                type="reminder",
+                title="PDT reminder",
+                due_at="2026-04-13T12:00:00-07:00",
+            )
+        )
+        # -07:00 → 12+7 = 19:00 UTC
+        assert r["intent"]["due_at"] == "2026-04-13T19:00:00Z"
+
+    async def test_create_normalizes_all_datetime_fields(self, tmp_path):
+        r = json.loads(
+            await IntentCreateTool(tmp_path).execute(
+                type="event",
+                title="Offset event",
+                due_at="2026-04-01T10:00:00+02:00",
+                start_at="2026-04-01T10:00:00+02:00",
+                end_at="2026-04-01T12:00:00+02:00",
+                snooze_until="2026-04-01T09:00:00+02:00",
+            )
+        )
+        intent = r["intent"]
+        assert intent["due_at"] == "2026-04-01T08:00:00Z"
+        assert intent["start_at"] == "2026-04-01T08:00:00Z"
+        assert intent["end_at"] == "2026-04-01T10:00:00Z"
+        assert intent["snooze_until"] == "2026-04-01T07:00:00Z"
+
+    async def test_update_normalizes_offset_due_at(self, tmp_path):
+        r = json.loads(
+            await IntentCreateTool(tmp_path).execute(type="task", title="Update me")
+        )
+        iid = r["intent"]["id"]
+        r2 = json.loads(
+            await IntentUpdateTool(tmp_path).execute(
+                id=iid, due_at="2026-04-13T12:00:00-07:00"
+            )
+        )
+        assert r2["intent"]["due_at"] == "2026-04-13T19:00:00Z"
+
+    async def test_snooze_normalizes_offset(self, tmp_path):
+        r = json.loads(
+            await IntentCreateTool(tmp_path).execute(
+                type="task", title="Snooze offset"
+            )
+        )
+        r2 = json.loads(
+            await IntentSnoozeTool(tmp_path).execute(
+                id=r["intent"]["id"],
+                snooze_until="2026-04-05T08:00:00+05:30",
+            )
+        )
+        assert r2["intent"]["snooze_until"] == "2026-04-05T02:30:00Z"
+
+    async def test_list_due_offset_due_at_not_in_early_window(self, tmp_path):
+        """Regression test for the original bug: due_at=-07:00 was incorrectly
+        matched by a Z-suffix window due to SQLite string comparison."""
+        await IntentCreateTool(tmp_path).execute(
+            type="reminder",
+            title="7pm UTC reminder",
+            due_at="2026-04-13T12:00:00-07:00",  # = 19:00 UTC
+        )
+        # Window up to 12:50 UTC — should NOT include the 19:00 UTC intent
+        r = json.loads(
+            await IntentListDueTool(tmp_path).execute(
+                window_start="2026-04-13T11:00:00Z",
+                window_end="2026-04-13T12:50:00Z",
+            )
+        )
+        assert r["count"] == 0, (
+            "Intent at 19:00 UTC should not appear in window ending 12:50 UTC"
+        )
+
+    async def test_list_due_offset_due_at_in_correct_window(self, tmp_path):
+        """The same intent SHOULD appear when the window actually covers it."""
+        await IntentCreateTool(tmp_path).execute(
+            type="reminder",
+            title="7pm UTC reminder",
+            due_at="2026-04-13T12:00:00-07:00",  # = 19:00 UTC
+        )
+        r = json.loads(
+            await IntentListDueTool(tmp_path).execute(
+                window_start="2026-04-13T18:00:00Z",
+                window_end="2026-04-13T20:00:00Z",
+            )
+        )
+        assert r["count"] == 1
+
+    async def test_list_due_with_offset_window_params(self, tmp_path):
+        """Window params expressed with offsets should be normalized too."""
+        await IntentCreateTool(tmp_path).execute(
+            type="task",
+            title="Noon UTC task",
+            due_at="2026-04-13T12:00:00Z",
+        )
+        # 13:00+02:00 = 11:00 UTC, 15:00+02:00 = 13:00 UTC
+        r = json.loads(
+            await IntentListDueTool(tmp_path).execute(
+                window_start="2026-04-13T13:00:00+02:00",
+                window_end="2026-04-13T15:00:00+02:00",
+            )
+        )
+        assert r["count"] == 1
+        assert r["intents"][0]["title"] == "Noon UTC task"
+
+    async def test_search_normalizes_due_window_offsets(self, tmp_path):
+        await IntentCreateTool(tmp_path).execute(
+            type="task",
+            title="Search target",
+            due_at="2026-03-15T12:00:00Z",
+        )
+        # 13:00+02:00 = 11:00 UTC, 15:00+02:00 = 13:00 UTC
+        r = json.loads(
+            await IntentSearchTool(tmp_path).execute(
+                due_from="2026-03-15T13:00:00+02:00",
+                due_to="2026-03-15T15:00:00+02:00",
+            )
+        )
+        assert r["count"] == 1
+        assert r["intents"][0]["title"] == "Search target"
+
+    async def test_complete_recurring_normalizes_next_due(self, tmp_path):
+        """Recurring intent advance should store next due_at as UTC Z."""
+        r = json.loads(
+            await IntentCreateTool(tmp_path).execute(
+                type="task",
+                title="Weekly",
+                due_at="2026-03-27T10:00:00Z",
+                rrule="RRULE:FREQ=WEEKLY;BYDAY=TH",
+            )
+        )
+        r2 = json.loads(
+            await IntentCompleteTool(tmp_path).execute(id=r["intent"]["id"])
+        )
+        # Next due should be a Thursday, still in Z format
+        assert r2["intent"]["due_at"].endswith("Z")
+        assert "T" in r2["intent"]["due_at"]
+
+
+# ---------------------------------------------------------------------------
+# Timestamp migration
+# ---------------------------------------------------------------------------
+
+
+class TestTimestampMigration:
+    """Verify the one-time migration of existing offset timestamps."""
+
+    def test_migration_normalizes_existing_offsets(self, tmp_path):
+        # Create DB manually with old-format timestamps (bypass _get_db)
+        db_dir = tmp_path / "data"
+        db_dir.mkdir(parents=True)
+        conn = sqlite3.connect(str(db_dir / "intents.db"))
+        conn.executescript(_SCHEMA_SQL)
+        conn.execute(
+            "INSERT INTO intents "
+            "(id, type, title, status, priority, due_at, start_at, "
+            " created_at, updated_at, deferrals, rescheduled_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)",
+            (
+                "MIGRATION_TEST_00000000000",
+                "task",
+                "Old format task",
+                "active",
+                1,
+                "2026-04-13T12:00:00-07:00",  # should become 19:00Z
+                "2026-04-13T14:00:00+02:00",  # should become 12:00Z
+                "2026-04-13T10:00:00+00:00",  # should become 10:00Z
+                "2026-04-13T10:00:00+00:00",  # should become 10:00Z
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        # Open through _get_db — migration should run
+        migrated = _get_db(tmp_path)
+        row = migrated.execute(
+            "SELECT due_at, start_at, created_at, updated_at "
+            "FROM intents WHERE id = 'MIGRATION_TEST_00000000000'"
+        ).fetchone()
+        assert row["due_at"] == "2026-04-13T19:00:00Z"
+        assert row["start_at"] == "2026-04-13T12:00:00Z"
+        assert row["created_at"] == "2026-04-13T10:00:00Z"
+        assert row["updated_at"] == "2026-04-13T10:00:00Z"
+
+    def test_migration_preserves_already_normalized(self, tmp_path):
+        db_dir = tmp_path / "data"
+        db_dir.mkdir(parents=True)
+        conn = sqlite3.connect(str(db_dir / "intents.db"))
+        conn.executescript(_SCHEMA_SQL)
+        conn.execute(
+            "INSERT INTO intents "
+            "(id, type, title, status, priority, due_at, "
+            " created_at, updated_at, deferrals, rescheduled_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)",
+            (
+                "ALREADY_NORMAL_00000000000",
+                "task",
+                "Already Z",
+                "active",
+                1,
+                "2026-04-13T19:00:00Z",
+                "2026-04-13T10:00:00Z",
+                "2026-04-13T10:00:00Z",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        migrated = _get_db(tmp_path)
+        row = migrated.execute(
+            "SELECT due_at FROM intents WHERE id = 'ALREADY_NORMAL_00000000000'"
+        ).fetchone()
+        assert row["due_at"] == "2026-04-13T19:00:00Z"
+
+    def test_migration_sets_user_version(self, tmp_path):
+        conn = _get_db(tmp_path)
+        version = conn.execute("PRAGMA user_version").fetchone()[0]
+        assert version == 1
+
+    def test_migration_normalizes_link_timestamps(self, tmp_path):
+        db_dir = tmp_path / "data"
+        db_dir.mkdir(parents=True)
+        conn = sqlite3.connect(str(db_dir / "intents.db"))
+        conn.executescript(_SCHEMA_SQL)
+        conn.execute(
+            "INSERT INTO intents "
+            "(id, type, title, status, priority, "
+            " created_at, updated_at, deferrals, rescheduled_count) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0)",
+            ("LINK_MIG_TEST_0000000000", "task", "Link test",
+             "active", 1, "2026-04-13T10:00:00Z", "2026-04-13T10:00:00Z"),
+        )
+        conn.execute(
+            "INSERT INTO intent_links "
+            "(intent_id, entity_path, rel, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            ("LINK_MIG_TEST_0000000000", "memory/areas/people/x.md",
+             "relates_to", "2026-04-13T10:00:00+00:00"),
+        )
+        conn.commit()
+        conn.close()
+
+        migrated = _get_db(tmp_path)
+        row = migrated.execute(
+            "SELECT created_at FROM intent_links "
+            "WHERE intent_id = 'LINK_MIG_TEST_0000000000'"
+        ).fetchone()
+        assert row["created_at"] == "2026-04-13T10:00:00Z"

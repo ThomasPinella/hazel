@@ -324,7 +324,7 @@ function handleApiStats(res) {
       FROM intents
       WHERE status = 'active'
         AND due_at IS NOT NULL
-        AND due_at < datetime('now')
+        AND due_at < strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
     `).get();
 
     const upcoming = db.prepare(`
@@ -332,7 +332,7 @@ function handleApiStats(res) {
       FROM intents
       WHERE status = 'active'
         AND (due_at IS NOT NULL OR start_at IS NOT NULL)
-        AND COALESCE(due_at, start_at) BETWEEN datetime('now') AND datetime('now', '+7 days')
+        AND COALESCE(due_at, start_at) BETWEEN strftime('%Y-%m-%dT%H:%M:%SZ', 'now') AND strftime('%Y-%m-%dT%H:%M:%SZ', 'now', '+7 days')
     `).get();
 
     sendJson(res, 200, {
