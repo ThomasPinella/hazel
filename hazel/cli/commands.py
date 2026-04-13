@@ -363,7 +363,7 @@ def quickstart(
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Get Hazel running in 2 minutes with sensible defaults."""
-    from hazel.cli.quickstart import run_quickstart
+    from hazel.cli.quickstart import run_quickstart, run_quickstart_post_save
     from hazel.config.loader import get_config_path, load_config, save_config, set_config_path
 
     if config:
@@ -408,6 +408,9 @@ def quickstart(
     # Dashboard setup
     _setup_dashboard(cfg)
 
+    # Optional setup-skills step (runs after save so the agent has a provider)
+    run_quickstart_post_save(cfg)
+
     agent_cmd = 'hazel agent -m "Hello!"'
     gateway_cmd = "hazel gateway"
     if config:
@@ -422,6 +425,95 @@ def quickstart(
     dashboard_cfg = cfg.gateway.dashboard
     if dashboard_cfg.enabled:
         console.print(f"\n  Dashboard: [cyan]http://{dashboard_cfg.host}:{dashboard_cfg.port}[/cyan]")
+
+
+def _run_setup_skills(cfg: Config, instructions: str) -> None:
+    """Feed setup instructions to the agent for execution."""
+    from hazel.agent.loop import AgentLoop
+    from hazel.bus.queue import MessageBus
+
+    bus = MessageBus()
+    provider = _make_provider(cfg)
+
+    sync_workspace_templates(cfg.workspace_path)
+
+    agent_loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=cfg.workspace_path,
+        model=cfg.agents.defaults.model,
+        max_iterations=cfg.agents.defaults.max_tool_iterations,
+        context_window_tokens=cfg.agents.defaults.context_window_tokens,
+        web_search_config=cfg.tools.web.search,
+        web_proxy=cfg.tools.web.proxy or None,
+        exec_config=cfg.tools.exec,
+        restrict_to_workspace=cfg.tools.restrict_to_workspace,
+        mcp_servers=cfg.tools.mcp_servers,
+        channels_config=cfg.channels,
+        dashboard_config=cfg.gateway.dashboard,
+    )
+
+    import asyncio
+
+    async def _run():
+        prompt = (
+            "You are running a setup-skills step during Hazel onboarding. "
+            "Follow the instructions below exactly. Execute any shell commands, "
+            "create any files, and install any packages as described. "
+            "Work in the workspace directory. Report what you did when done.\n\n"
+            f"{instructions}"
+        )
+        response = await agent_loop.process_direct(
+            prompt,
+            session_key="cli:setup-skills",
+            channel="cli",
+            chat_id="direct",
+        )
+        await agent_loop.close_mcp()
+        return response
+
+    console.print()
+    console.print("[dim]Running setup instructions...[/dim]")
+    response = asyncio.run(_run())
+    if response:
+        from rich.markdown import Markdown as RichMarkdown
+        console.print()
+        console.print(RichMarkdown(response))
+
+
+@app.command(name="setup-skills")
+def setup_skills(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Run setup instructions to install skills and configure the workspace.
+
+    Paste the full contents of your setup instructions into the terminal
+    and press Enter.
+    """
+    cfg = _load_runtime_config(config, workspace)
+
+    # Check that an LLM provider is configured
+    if not cfg.get_api_key():
+        console.print("[red]Error: No LLM provider is configured.[/red]")
+        console.print("Set up a provider first with [cyan]hazel quickstart[/cyan] or [cyan]hazel onboard --wizard[/cyan]")
+        raise typer.Exit(1)
+
+    console.print("Paste your setup instructions below and press [bold]Enter[/bold]:\n")
+    try:
+        import questionary
+        instructions = questionary.text("Instructions:", qmark=">", multiline=False).ask()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        raise typer.Exit()
+    if instructions is None:
+        raise typer.Exit()
+
+    if not instructions.strip():
+        console.print("[yellow]No instructions provided.[/yellow]")
+        raise typer.Exit()
+
+    _run_setup_skills(cfg, instructions)
 
 
 def _merge_missing_defaults(existing: Any, defaults: Any) -> Any:

@@ -199,6 +199,47 @@ def _step_channel_advanced(config: Config) -> bool:
 # ── Main entry point ───────────────────────────────────────────────────────
 
 
+def _step_setup_skills(config: Config) -> None:
+    """Optionally run pasted setup instructions through the agent."""
+    q = _get_questionary()
+
+    console.print()
+    console.print(
+        Panel(
+            "[bold]Setup Skills (optional)[/bold]\n\n"
+            "If you have setup instructions, you can paste them here\n"
+            "and Hazel will run them to install skills and configure\n"
+            "your workspace.",
+            border_style="blue",
+        )
+    )
+
+    console.print()
+    has_instructions = q.confirm(
+        "Do you have setup instructions to paste?",
+        default=False,
+        qmark=">",
+    ).ask()
+
+    if not has_instructions:
+        console.print("[dim]Skipped. You can always run this later with: hazel setup-skills[/dim]")
+        return
+
+    console.print()
+    console.print("Paste your setup instructions below and press [bold]Enter[/bold]:\n")
+    instructions = q.text("Instructions:", qmark=">", multiline=False).ask()
+    if instructions is None:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+
+    if not instructions.strip():
+        console.print("[yellow]No instructions provided, skipping.[/yellow]")
+        return
+
+    from hazel.cli.commands import _run_setup_skills
+    _run_setup_skills(config, instructions)
+
+
 def run_quickstart(config: Config) -> tuple[Config, bool]:
     """Run the quickstart wizard.
 
@@ -227,11 +268,11 @@ def run_quickstart(config: Config) -> tuple[Config, bool]:
         console.print("[yellow]Setup cancelled.[/yellow]")
         return config, False
 
-    # Done!
+    # Done with core setup — save first so setup-skills has a working provider
     console.print()
     console.print(
         Panel(
-            "[bold green]Setup complete![/bold green]\n\n"
+            "[bold green]Core setup complete![/bold green]\n\n"
             "Want to customize more settings? Run:\n"
             "  [cyan]hazel onboard --wizard[/cyan]",
             border_style="green",
@@ -239,3 +280,12 @@ def run_quickstart(config: Config) -> tuple[Config, bool]:
     )
 
     return config, True
+
+
+def run_quickstart_post_save(config: Config) -> None:
+    """Run the optional setup-skills step after config has been saved.
+
+    Called by the quickstart command after saving config, so the agent
+    has a working provider available.
+    """
+    _step_setup_skills(config)

@@ -9,6 +9,9 @@ from pathlib import Path
 # Default builtin skills directory (relative to this file)
 BUILTIN_SKILLS_DIR = Path(__file__).parent.parent / "skills"
 
+# Global skills directory shared across all workspaces
+GLOBAL_SKILLS_DIR = Path.home() / ".agents" / "skills"
+
 
 class SkillsLoader:
     """
@@ -21,6 +24,7 @@ class SkillsLoader:
     def __init__(self, workspace: Path, builtin_skills_dir: Path | None = None):
         self.workspace = workspace
         self.workspace_skills = workspace / "skills"
+        self.global_skills = GLOBAL_SKILLS_DIR
         self.builtin_skills = builtin_skills_dir or BUILTIN_SKILLS_DIR
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
@@ -42,6 +46,14 @@ class SkillsLoader:
                     skill_file = skill_dir / "SKILL.md"
                     if skill_file.exists():
                         skills.append({"name": skill_dir.name, "path": str(skill_file), "source": "workspace"})
+
+        # Global skills (~/.agents/skills/)
+        if self.global_skills.exists():
+            for skill_dir in self.global_skills.iterdir():
+                if skill_dir.is_dir():
+                    skill_file = skill_dir / "SKILL.md"
+                    if skill_file.exists() and not any(s["name"] == skill_dir.name for s in skills):
+                        skills.append({"name": skill_dir.name, "path": str(skill_file), "source": "global"})
 
         # Built-in skills
         if self.builtin_skills and self.builtin_skills.exists():
@@ -70,6 +82,11 @@ class SkillsLoader:
         workspace_skill = self.workspace_skills / name / "SKILL.md"
         if workspace_skill.exists():
             return workspace_skill.read_text(encoding="utf-8")
+
+        # Check global (~/.agents/skills/)
+        global_skill = self.global_skills / name / "SKILL.md"
+        if global_skill.exists():
+            return global_skill.read_text(encoding="utf-8")
 
         # Check built-in
         if self.builtin_skills:
