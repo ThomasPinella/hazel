@@ -17,6 +17,16 @@ hazel setup-skills           # paste setup instructions for one-shot skill insta
 hazel setup-user-actions     # interactive dialogue to configure actions/workflows
 ```
 
+### Custom Install via onboardme.ai
+
+Users can get a personalized one-liner at [onboardme.ai](https://onboardme.ai) that includes a setup config token:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash -s -- --config <token>
+```
+
+The install script passes the token to `hazel quickstart --setup-config <token>`, which fetches a JSON payload from the config API and auto-feeds the values through the setup flow. See **Setup Config Token** below.
+
 ## Architecture Overview
 
 ```
@@ -305,6 +315,29 @@ Key config sections:
 - `tools` — web proxy, search provider, exec settings, MCP servers, restrict_to_workspace
 
 Config schema accepts both camelCase and snake_case keys.
+
+## Setup Config Token
+
+The install script and `hazel quickstart` support an optional `--setup-config <token>` flow for pre-configured installations. Users build their config at [onboardme.ai](https://onboardme.ai) and get a single install command.
+
+**How it works:**
+
+1. `scripts/install.sh` accepts `--config <token>` and passes it to `hazel quickstart --setup-config <token>`
+2. `quickstart` calls `_fetch_setup_config(token)` in `cli/commands.py`, which hits `{HAZEL_CONFIG_URL}/api/config/{token}`
+   - Default base URL: `https://get-hazel.vercel.app` (override via `HAZEL_CONFIG_URL` env var)
+3. The API returns JSON with three keys:
+   - `skillsSetup` — markdown instructions auto-fed to `_run_setup_skills()` (skips interactive prompt)
+   - `userActions` — markdown instructions auto-fed to `_run_setup_user_actions()` (skips interactive prompt)
+   - `agentIdentity` — markdown saved as `AGENT_IDENTITY.md` in the workspace
+4. On the first conversation, `ContextBuilder._get_onboarding_prompt()` loads `AGENT_IDENTITY.md` alongside `ONBOARDING.md`, giving the agent its configured identity/personality during onboarding
+
+**Key files:**
+- `scripts/install.sh` — `parse_args()` extracts `--config`, passes to quickstart
+- `hazel/cli/commands.py` — `_fetch_setup_config()`, `quickstart()` with `--setup-config` option
+- `hazel/cli/quickstart.py` — `run_quickstart_post_save()`, `_step_setup_skills()`, `_step_setup_user_actions()` accept `auto_instructions`
+- `hazel/agent/context.py` — `_get_onboarding_prompt()` loads `AGENT_IDENTITY.md`
+
+**Without the token**, all flows work exactly as before (interactive prompts).
 
 ## How to Add Things
 

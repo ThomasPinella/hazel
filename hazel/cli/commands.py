@@ -357,10 +357,49 @@ def onboard(
     console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/hazel#-chat-apps[/dim]")
 
 
+def _fetch_setup_config(token: str) -> dict[str, str] | None:
+    """Fetch setup config JSON from the config API.
+
+    Returns a dict with keys: skillsSetup, userActions, agentIdentity.
+    Returns None if the fetch fails.
+    """
+    import json
+    import urllib.request
+    import urllib.error
+
+    base_url = os.environ.get(
+        "HAZEL_CONFIG_URL", "https://get-hazel.vercel.app"
+    ).rstrip("/")
+    url = f"{base_url}/api/config/{token}"
+
+    console.print(f"[dim]Fetching setup config from {url}...[/dim]")
+
+    try:
+        req = urllib.request.Request(url, headers={"Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        console.print(f"[red]Failed to fetch setup config: HTTP {e.code}[/red]")
+        return None
+    except Exception as e:
+        console.print(f"[red]Failed to fetch setup config: {e}[/red]")
+        return None
+
+    # Validate expected keys
+    expected = {"skillsSetup", "userActions", "agentIdentity"}
+    missing = expected - set(data.keys())
+    if missing:
+        console.print(f"[yellow]Warning: setup config missing keys: {', '.join(missing)}[/yellow]")
+
+    console.print("[green]✓[/green] Setup config loaded")
+    return data
+
+
 @app.command()
 def quickstart(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    setup_config: str | None = typer.Option(None, "--setup-config", help="Setup config token for automated setup"),
 ):
     """Get Hazel running in 2 minutes with sensible defaults."""
     from hazel.cli.quickstart import run_quickstart, run_quickstart_post_save
@@ -372,6 +411,11 @@ def quickstart(
         console.print(f"[dim]Using config: {config_path}[/dim]")
     else:
         config_path = get_config_path()
+
+    # Fetch setup config if token provided
+    setup_config_data = None
+    if setup_config:
+        setup_config_data = _fetch_setup_config(setup_config)
 
     # Load existing or create fresh config
     if config_path.exists():
@@ -405,11 +449,17 @@ def quickstart(
 
     sync_workspace_templates(workspace_path)
 
+    # Save agent identity to workspace if present in setup config
+    if setup_config_data and setup_config_data.get("agentIdentity"):
+        identity_path = workspace_path / "AGENT_IDENTITY.md"
+        identity_path.write_text(setup_config_data["agentIdentity"], encoding="utf-8")
+        console.print("[green]✓[/green] Agent identity saved")
+
     # Dashboard setup
     _setup_dashboard(cfg)
 
-    # Optional setup-skills step (runs after save so the agent has a provider)
-    run_quickstart_post_save(cfg)
+    # Optional setup-skills + setup-user-actions (auto-fed if setup config present)
+    run_quickstart_post_save(cfg, setup_config_data=setup_config_data)
 
     agent_cmd = 'hazel agent -m "Hello!"'
     gateway_cmd = "hazel gateway"

@@ -182,6 +182,28 @@ Full details captured in MEMORY.md and [user entity path].
 
 4. **Set up synthesis cron (optional):** If user wants proactive check-ins, create a slow-cadence cron that scans entities and surfaces patterns or questions.
 
+5. **Introduce Memory & Dashboard:** Briefly explain the memory system and share a live dashboard link so the user can immediately see what was captured. Use something like:
+
+   > "Everything we just talked about is now saved in your memory — here's how it works at a high level:
+   >
+   > **Memory** is how I remember things about you and your world. I store what matters — people, projects, places, things you care about — as structured notes I can look up anytime. So next time you mention someone or something, I'll already have context. You don't need to repeat yourself.
+   >
+   > You can see everything I've stored on your **dashboard** — it shows your knowledge graph (all the people and things I know about, and how they connect), your daily logs, and more. Here's a link:"
+
+   Then call `dashboard_link` to generate a secure, time-limited URL and send it.
+
+   > "That link is good for an hour. Whenever you want to see the dashboard again, just ask me for a link."
+
+6. **Introduce Reminders & Tasks:** Explain the intent system in practical terms:
+
+   > "One more thing — I can also keep track of **reminders, tasks, and events** for you. Just tell me in plain language and I'll handle it. A few examples:
+   >
+   > - *'Remind me to call Mom every Sunday at 10am'* — I'll set up a repeating reminder and nudge you each week.
+   > - *'Dad's birthday is March 15th'* — I'll remember it every year and remind you a few days before.
+   > - *'I need to renew my passport before July'* — I'll track it as a task and check in as the deadline gets closer.
+   >
+   > You can ask me what's coming up, snooze things, or mark them done — whatever feels natural."
+
 ---
 
 ## On Change Over Time

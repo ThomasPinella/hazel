@@ -19,7 +19,17 @@ curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/in
 
 This installs [uv](https://docs.astral.sh/uv/) (if needed), which manages Python automatically, then installs Hazel and puts the `hazel` command on your PATH.
 
-To install a specific version:
+### Custom install (recommended)
+
+Go to **[onboardme.ai](https://onboardme.ai)** to build a personalized install command. You'll configure your agent's skills, actions, and identity — then get a single command like:
+
+```bash
+curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash -s -- --config <your-token>
+```
+
+This installs Hazel and automatically runs `hazel quickstart` with your pre-configured skills, user actions, and agent identity — no manual pasting required.
+
+### Install a specific version
 
 ```bash
 HAZEL_VERSION=v0.1.4 curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash
@@ -80,6 +90,7 @@ hazel gateway
 | Command | Description |
 |---------|-------------|
 | `hazel quickstart` | Guided 2-minute setup (provider, channel, skills, user actions) |
+| `hazel quickstart --setup-config <token>` | Quickstart with pre-configured setup from [onboardme.ai](https://onboardme.ai) |
 | `hazel onboard` | First-time setup (creates config + workspace) |
 | `hazel onboard --wizard` | Interactive setup wizard |
 | `hazel setup-skills` | Paste setup instructions for one-shot skill installation |
@@ -1405,6 +1416,7 @@ hazel gateway --config ~/.hazel-telegram/config.json --workspace /tmp/hazel-tele
 | Command | Description |
 |---------|-------------|
 | `hazel quickstart` | Guided 2-minute setup (provider, channel, skills, user actions) |
+| `hazel quickstart --setup-config <token>` | Quickstart with pre-configured skills, actions, and identity from [onboardme.ai](https://onboardme.ai) |
 | `hazel onboard` | Initialize config & workspace at `~/.hazel/` |
 | `hazel onboard --wizard` | Launch the interactive onboarding wizard |
 | `hazel onboard -c <config> -w <workspace>` | Initialize or refresh a specific instance config and workspace |

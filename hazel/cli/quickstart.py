@@ -199,8 +199,20 @@ def _step_channel_advanced(config: Config) -> bool:
 # ── Main entry point ───────────────────────────────────────────────────────
 
 
-def _step_setup_skills(config: Config) -> None:
-    """Optionally run pasted setup instructions through the agent."""
+def _step_setup_skills(config: Config, auto_instructions: str | None = None) -> None:
+    """Optionally run pasted setup instructions through the agent.
+
+    If *auto_instructions* is provided (from a setup config token),
+    they are fed directly without prompting.
+    """
+    from hazel.cli.commands import _run_setup_skills
+
+    if auto_instructions:
+        console.print()
+        console.print("[green]✓[/green] Running skills setup from config...")
+        _run_setup_skills(config, auto_instructions)
+        return
+
     q = _get_questionary()
 
     console.print()
@@ -236,7 +248,6 @@ def _step_setup_skills(config: Config) -> None:
         console.print("[yellow]No instructions provided, skipping.[/yellow]")
         return
 
-    from hazel.cli.commands import _run_setup_skills
     _run_setup_skills(config, instructions)
 
 
@@ -282,8 +293,20 @@ def run_quickstart(config: Config) -> tuple[Config, bool]:
     return config, True
 
 
-def _step_setup_user_actions(config: Config) -> None:
-    """Optionally run an interactive setup session for user actions."""
+def _step_setup_user_actions(config: Config, auto_instructions: str | None = None) -> None:
+    """Optionally run an interactive setup session for user actions.
+
+    If *auto_instructions* is provided (from a setup config token),
+    they are fed directly without prompting.
+    """
+    from hazel.cli.commands import _run_setup_user_actions
+
+    if auto_instructions:
+        console.print()
+        console.print("[green]✓[/green] Running user actions setup from config...")
+        _run_setup_user_actions(config, auto_instructions)
+        return
+
     q = _get_questionary()
 
     console.print()
@@ -319,15 +342,23 @@ def _step_setup_user_actions(config: Config) -> None:
         console.print("[yellow]No instructions provided, skipping.[/yellow]")
         return
 
-    from hazel.cli.commands import _run_setup_user_actions
     _run_setup_user_actions(config, instructions)
 
 
-def run_quickstart_post_save(config: Config) -> None:
+def run_quickstart_post_save(
+    config: Config, setup_config_data: dict[str, str] | None = None
+) -> None:
     """Run optional post-save setup steps.
 
     Called by the quickstart command after saving config, so the agent
     has a working provider available.
+
+    If *setup_config_data* is provided (from a --setup-config token),
+    the skillsSetup and userActions values are fed directly, skipping
+    interactive prompts.
     """
-    _step_setup_skills(config)
-    _step_setup_user_actions(config)
+    skills_instructions = (setup_config_data or {}).get("skillsSetup") or None
+    actions_instructions = (setup_config_data or {}).get("userActions") or None
+
+    _step_setup_skills(config, auto_instructions=skills_instructions)
+    _step_setup_user_actions(config, auto_instructions=actions_instructions)

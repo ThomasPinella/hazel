@@ -134,7 +134,8 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         if not content:
             return None
         workspace_path = str(self.workspace.expanduser().resolve())
-        return (
+
+        parts = [
             "# First Conversation — Onboarding\n\n"
             "**This is your first conversation with this user.** Follow the onboarding guide below. "
             "Ask the questions naturally, save information as directed, and adapt to the user's responses. "
@@ -143,7 +144,23 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
             f"create a marker file at `{workspace_path}/.onboarded` (contents: the current date) "
             "using write_file to mark onboarding as complete.\n\n"
             f"{content}"
-        )
+        ]
+
+        # Include agent identity if provided via setup config
+        identity_file = self.workspace / "AGENT_IDENTITY.md"
+        if identity_file.exists():
+            identity_content = identity_file.read_text(encoding="utf-8").strip()
+            if identity_content:
+                parts.append(
+                    "\n\n---\n\n"
+                    "# Agent Identity\n\n"
+                    "The following describes your identity, personality, and role as configured "
+                    "by the person who set you up. Incorporate this into how you present yourself "
+                    "and interact with the user.\n\n"
+                    f"{identity_content}"
+                )
+
+        return "".join(parts)
 
     def build_messages(
         self,

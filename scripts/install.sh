@@ -3,6 +3,7 @@
 #
 # Usage:
 #   curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash
+#   curl -LsSf https://raw.githubusercontent.com/ThomasPinella/hazel/main/scripts/install.sh | bash -s -- --config <token>
 #
 # What this does:
 #   1. Installs uv (Python package manager) if not present
@@ -18,6 +19,7 @@ set -euo pipefail
 
 GITHUB_REPO="ThomasPinella/hazel"
 VERSION="${HAZEL_VERSION:-}"
+SETUP_CONFIG_TOKEN=""
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -222,9 +224,32 @@ ensure_on_path() {
 }
 
 # ---------------------------------------------------------------------------
+# Parse arguments
+# ---------------------------------------------------------------------------
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --config)
+                if [[ -z "${2:-}" ]]; then
+                    error "--config requires a token argument"
+                    exit 1
+                fi
+                SETUP_CONFIG_TOKEN="$2"
+                shift 2
+                ;;
+            *)
+                warn "Unknown argument: $1"
+                shift
+                ;;
+        esac
+    done
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 main() {
+    parse_args "$@"
     echo ""
     echo -e "${CYAN}  _   _               _  ${NC}"
     echo -e "${CYAN} | | | | __ _ _______| | ${NC}"
@@ -247,17 +272,24 @@ main() {
 
     echo ""
     echo "---------------------------------------"
-    info "Get started (recommended):"
-    echo ""
-    echo "  hazel quickstart"
-    echo ""
-    echo "Sets you up with sensible defaults in under 2 minutes."
-    echo "Just bring your API key and a Telegram bot token."
-    echo ""
-    echo "For full control over every setting, run:"
-    echo ""
-    echo "  hazel onboard --wizard"
-    echo ""
+
+    if [[ -n "$SETUP_CONFIG_TOKEN" ]]; then
+        info "Setup config token detected. Starting quickstart with config..."
+        echo ""
+        hazel quickstart --setup-config "$SETUP_CONFIG_TOKEN"
+    else
+        info "Get started (recommended):"
+        echo ""
+        echo "  hazel quickstart"
+        echo ""
+        echo "Sets you up with sensible defaults in under 2 minutes."
+        echo "Just bring your API key and a Telegram bot token."
+        echo ""
+        echo "For full control over every setting, run:"
+        echo ""
+        echo "  hazel onboard --wizard"
+        echo ""
+    fi
 }
 
 main "$@"
