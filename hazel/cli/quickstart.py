@@ -37,7 +37,12 @@ def _should_use_fallback() -> bool:
     try:
         import termios
 
-        termios.tcgetattr(sys.stdin.fileno())
+        fd = sys.stdin.fileno()
+        attrs = termios.tcgetattr(fd)
+        # tcgetattr can succeed while tcsetattr fails with EINVAL
+        # (e.g. /dev/tty redirect inside curl|bash).  Test the actual
+        # write operation that prompt_toolkit needs.
+        termios.tcsetattr(fd, termios.TCSANOW, attrs)
         _USE_FALLBACK = False
     except Exception:
         _USE_FALLBACK = True

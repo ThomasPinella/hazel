@@ -274,9 +274,20 @@ main() {
     echo "---------------------------------------"
 
     if [[ -n "$SETUP_CONFIG_TOKEN" ]]; then
-        info "Setup config token detected. Starting quickstart with config..."
+        # Save the token so `hazel quickstart` picks it up automatically.
+        # Do NOT try to run quickstart inside a curl|bash pipe — interactive
+        # terminal prompts fail in that context.
+        local token_dir="$HOME/.hazel"
+        mkdir -p "$token_dir"
+        echo "$SETUP_CONFIG_TOKEN" > "$token_dir/.setup_config_token"
+        info "Setup config token saved."
         echo ""
-        hazel quickstart --setup-config "$SETUP_CONFIG_TOKEN" </dev/tty
+        info "Now run this to finish setup (takes ~2 minutes):"
+        echo ""
+        echo -e "  ${CYAN}hazel quickstart${NC}"
+        echo ""
+        echo "Your config token will be picked up automatically."
+        echo ""
     else
         info "Get started (recommended):"
         echo ""

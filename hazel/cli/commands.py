@@ -412,8 +412,15 @@ def quickstart(
     else:
         config_path = get_config_path()
 
-    # Fetch setup config if token provided
+    # Fetch setup config if token provided (or saved by the install script)
     setup_config_data = None
+    if not setup_config:
+        saved_token_path = Path.home() / ".hazel" / ".setup_config_token"
+        if saved_token_path.exists():
+            setup_config = saved_token_path.read_text(encoding="utf-8").strip()
+            if setup_config:
+                console.print("[dim]Found saved setup config token from installer.[/dim]")
+                saved_token_path.unlink()
     if setup_config:
         setup_config_data = _fetch_setup_config(setup_config)
 
