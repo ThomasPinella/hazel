@@ -61,13 +61,14 @@ You ──► Chat App (Telegram/Discord/...) ──► Hazel ──► LLM Prov
 ## Quick Start
 
 ```bash
-# 1. Set up config and workspace
-hazel onboard
+# Fastest path — guided setup (provider + channel + skills + user actions)
+hazel quickstart
 
-# 2. Add your API key to ~/.hazel/config.json
-#    Get one at: https://openrouter.ai/keys
+# Or manual setup
+hazel onboard               # creates config + workspace
+# Add your API key to ~/.hazel/config.json
 
-# 3. Chat
+# Chat
 hazel agent
 
 # Or start the always-on daemon (connects to Telegram, Discord, etc.)
@@ -78,8 +79,11 @@ hazel gateway
 
 | Command | Description |
 |---------|-------------|
+| `hazel quickstart` | Guided 2-minute setup (provider, channel, skills, user actions) |
 | `hazel onboard` | First-time setup (creates config + workspace) |
 | `hazel onboard --wizard` | Interactive setup wizard |
+| `hazel setup-skills` | Paste setup instructions for one-shot skill installation |
+| `hazel setup-user-actions` | Interactive dialogue to configure actions/workflows |
 | `hazel agent` | Interactive chat mode |
 | `hazel agent -m "..."` | One-shot message |
 | `hazel gateway` | Start the always-on daemon (channels + cron + heartbeat) |
@@ -1400,9 +1404,12 @@ hazel gateway --config ~/.hazel-telegram/config.json --workspace /tmp/hazel-tele
 
 | Command | Description |
 |---------|-------------|
+| `hazel quickstart` | Guided 2-minute setup (provider, channel, skills, user actions) |
 | `hazel onboard` | Initialize config & workspace at `~/.hazel/` |
 | `hazel onboard --wizard` | Launch the interactive onboarding wizard |
 | `hazel onboard -c <config> -w <workspace>` | Initialize or refresh a specific instance config and workspace |
+| `hazel setup-skills` | Paste setup instructions for one-shot skill installation |
+| `hazel setup-user-actions` | Interactive dialogue to configure actions and workflows |
 | `hazel agent` | Interactive chat mode |
 | `hazel agent -m "..."` | One-shot message |
 | `hazel agent -w <workspace>` | Chat against a specific workspace |

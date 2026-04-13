@@ -516,6 +516,170 @@ def setup_skills(
     _run_setup_skills(cfg, instructions)
 
 
+def _run_setup_user_actions(cfg: Config, initial_message: str) -> None:
+    """Run an interactive setup dialogue for user actions."""
+    from hazel.agent.loop import AgentLoop
+    from hazel.bus.queue import MessageBus
+
+    bus = MessageBus()
+    provider = _make_provider(cfg)
+
+    sync_workspace_templates(cfg.workspace_path)
+
+    agent_loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=cfg.workspace_path,
+        model=cfg.agents.defaults.model,
+        max_iterations=cfg.agents.defaults.max_tool_iterations,
+        context_window_tokens=cfg.agents.defaults.context_window_tokens,
+        web_search_config=cfg.tools.web.search,
+        web_proxy=cfg.tools.web.proxy or None,
+        exec_config=cfg.tools.exec,
+        restrict_to_workspace=cfg.tools.restrict_to_workspace,
+        mcp_servers=cfg.tools.mcp_servers,
+        channels_config=cfg.channels,
+        dashboard_config=cfg.gateway.dashboard,
+    )
+
+    # Build a stripped-down system prompt: identity + skills, no bootstrap files or memory
+    context = agent_loop.context
+    workspace_path = str(cfg.workspace_path.expanduser().resolve())
+
+    prompt_parts = [
+        f"""# Hazel — Setup User Actions
+
+You are Hazel, running an interactive setup session. The user has provided instructions
+describing actions, workflows, skills, or automations they want configured.
+
+## Workspace
+Your workspace is at: {workspace_path}
+- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
+- Memory: {workspace_path}/memory/
+
+## Guidelines
+- Walk through the user's instructions step by step.
+- Ask clarifying questions when something is ambiguous.
+- Use your tools to accomplish each setup task (file operations, shell commands, web search, etc.).
+- When all steps are complete, clearly tell the user that setup is done and summarize what was configured.
+- Be concise and action-oriented.""",
+    ]
+
+    always_skills = context.skills.get_always_skills()
+    if always_skills:
+        always_content = context.skills.load_skills_for_context(always_skills)
+        if always_content:
+            prompt_parts.append(f"# Active Skills\n\n{always_content}")
+
+    skills_summary = context.skills.build_skills_summary()
+    if skills_summary:
+        prompt_parts.append(
+            "# Skills\n\n"
+            "The following skills extend your capabilities. "
+            "To use a skill, read its SKILL.md file using the read_file tool.\n\n"
+            f"{skills_summary}"
+        )
+
+    system_prompt = "\n\n---\n\n".join(prompt_parts)
+    session_key = "cli:setup-user-actions"
+
+    _init_prompt_session()
+
+    console.print()
+    console.print("[dim]Starting interactive setup session...[/dim]")
+    console.print("[dim]Type 'exit' or press Ctrl+C when done.[/dim]\n")
+
+    async def _run():
+        _thinking = None
+
+        async def _progress(content: str, *, tool_hint: bool = False) -> None:
+            _print_cli_progress_line(content, _thinking)
+
+        # Process initial message
+        _thinking = _ThinkingSpinner(enabled=True)
+        with _thinking:
+            response = await agent_loop.process_direct(
+                initial_message,
+                session_key=session_key,
+                channel="cli",
+                chat_id="setup-user-actions",
+                on_progress=_progress,
+                system_prompt=system_prompt,
+            )
+        _thinking = None
+        _print_agent_response(response, render_markdown=True)
+
+        # Interactive dialogue loop
+        while True:
+            try:
+                _flush_pending_tty_input()
+                user_input = await _read_interactive_input_async()
+                command = user_input.strip()
+                if not command:
+                    continue
+                if _is_exit_command(command):
+                    break
+
+                _thinking = _ThinkingSpinner(enabled=True)
+                with _thinking:
+                    response = await agent_loop.process_direct(
+                        user_input,
+                        session_key=session_key,
+                        channel="cli",
+                        chat_id="setup-user-actions",
+                        on_progress=_progress,
+                        system_prompt=system_prompt,
+                    )
+                _thinking = None
+                _print_agent_response(response, render_markdown=True)
+            except (KeyboardInterrupt, EOFError):
+                break
+
+        await agent_loop.close_mcp()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+
+    _restore_terminal()
+    console.print("\n[green]\u2713[/green] Setup session complete.")
+
+
+@app.command(name="setup-user-actions")
+def setup_user_actions(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Interactive setup session for user actions and workflows.
+
+    Paste instructions describing actions or automations you want,
+    then work through an interactive dialogue with the agent to set them up.
+    """
+    cfg = _load_runtime_config(config, workspace)
+
+    if not cfg.get_api_key():
+        console.print("[red]Error: No LLM provider is configured.[/red]")
+        console.print("Set up a provider first with [cyan]hazel quickstart[/cyan] or [cyan]hazel onboard --wizard[/cyan]")
+        raise typer.Exit(1)
+
+    console.print("Paste your setup instructions below and press [bold]Enter[/bold]:\n")
+    try:
+        import questionary
+        instructions = questionary.text("Instructions:", qmark=">", multiline=False).ask()
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        raise typer.Exit()
+    if instructions is None:
+        raise typer.Exit()
+
+    if not instructions.strip():
+        console.print("[yellow]No instructions provided.[/yellow]")
+        raise typer.Exit()
+
+    _run_setup_user_actions(cfg, instructions)
+
+
 def _merge_missing_defaults(existing: Any, defaults: Any) -> Any:
     """Recursively fill in missing values from defaults without overwriting user config."""
     if not isinstance(existing, dict) or not isinstance(defaults, dict):

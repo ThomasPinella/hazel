@@ -8,10 +8,13 @@ Hazel is an ultra-lightweight personal AI assistant framework written in Python 
 
 ```bash
 pip install hazel-ai
-hazel onboard          # creates ~/.hazel/config.json + workspace
-hazel agent -m "Hello" # one-shot CLI
-hazel agent            # interactive REPL
-hazel gateway          # long-running server with channels + cron + heartbeat
+hazel quickstart             # guided 2-minute setup (provider + channel + skills + user actions)
+hazel onboard                # creates ~/.hazel/config.json + workspace (manual setup)
+hazel agent -m "Hello"       # one-shot CLI
+hazel agent                  # interactive REPL
+hazel gateway                # long-running server with channels + cron + heartbeat
+hazel setup-skills           # paste setup instructions for one-shot skill installation
+hazel setup-user-actions     # interactive dialogue to configure actions/workflows
 ```
 
 ## Architecture Overview
@@ -69,7 +72,7 @@ hazel/
 │   ├── qq.py                # QQ
 │   └── mochat.py            # MoChat
 ├── cli/
-│   ├── commands.py          # ★ Typer CLI — onboard, gateway, agent, status, channels, provider login
+│   ├── commands.py          # ★ Typer CLI — quickstart, onboard, agent, gateway, setup-skills, setup-user-actions, status, channels, provider login
 │   ├── onboard_wizard.py    # Interactive setup wizard
 │   └── model_info.py        # Model metadata for wizard
 ├── config/

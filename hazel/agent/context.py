@@ -154,6 +154,7 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         channel: str | None = None,
         chat_id: str | None = None,
         current_role: str = "user",
+        system_prompt: str | None = None,
     ) -> list[dict[str, Any]]:
         """Build the complete message list for an LLM call."""
         runtime_ctx = self._build_runtime_context(channel, chat_id)
@@ -166,8 +167,10 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         else:
             merged = [{"type": "text", "text": runtime_ctx}] + user_content
 
+        prompt = system_prompt if system_prompt is not None else self.build_system_prompt(skill_names)
+
         return [
-            {"role": "system", "content": self.build_system_prompt(skill_names)},
+            {"role": "system", "content": prompt},
             *history,
             {"role": current_role, "content": merged},
         ]

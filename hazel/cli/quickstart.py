@@ -282,10 +282,52 @@ def run_quickstart(config: Config) -> tuple[Config, bool]:
     return config, True
 
 
+def _step_setup_user_actions(config: Config) -> None:
+    """Optionally run an interactive setup session for user actions."""
+    q = _get_questionary()
+
+    console.print()
+    console.print(
+        Panel(
+            "[bold]Setup User Actions (optional)[/bold]\n\n"
+            "If you have instructions for setting up actions, workflows,\n"
+            "or automations, paste them here to start an interactive\n"
+            "setup session with Hazel.",
+            border_style="blue",
+        )
+    )
+
+    console.print()
+    has_instructions = q.confirm(
+        "Do you have user action instructions to set up?",
+        default=False,
+        qmark=">",
+    ).ask()
+
+    if not has_instructions:
+        console.print("[dim]Skipped. You can always run this later with: hazel setup-user-actions[/dim]")
+        return
+
+    console.print()
+    console.print("Paste your instructions below and press [bold]Enter[/bold]:\n")
+    instructions = q.text("Instructions:", qmark=">", multiline=False).ask()
+    if instructions is None:
+        console.print("\n[yellow]Cancelled.[/yellow]")
+        return
+
+    if not instructions.strip():
+        console.print("[yellow]No instructions provided, skipping.[/yellow]")
+        return
+
+    from hazel.cli.commands import _run_setup_user_actions
+    _run_setup_user_actions(config, instructions)
+
+
 def run_quickstart_post_save(config: Config) -> None:
-    """Run the optional setup-skills step after config has been saved.
+    """Run optional post-save setup steps.
 
     Called by the quickstart command after saving config, so the agent
     has a working provider available.
     """
     _step_setup_skills(config)
+    _step_setup_user_actions(config)
