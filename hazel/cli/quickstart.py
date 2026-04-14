@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import sys
 from getpass import getpass
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -11,6 +13,61 @@ from rich.panel import Panel
 from hazel.config.schema import Config
 
 console = Console()
+
+
+# ── "Already done?" detectors ───────────────────────────────────────────────
+
+
+def _provider_configured(config: Config) -> bool:
+    """True if the config has a usable LLM provider + API key."""
+    try:
+        return bool(config.get_api_key())
+    except Exception:
+        return False
+
+
+def _channel_configured(config: Config) -> bool:
+    """True if at least one channel is enabled with the fields it needs."""
+    # Channels are stored as extra dict fields on ChannelsConfig.
+    channels_dump = config.channels.model_dump()
+    for name, cfg in channels_dump.items():
+        if not isinstance(cfg, dict):
+            continue
+        if not cfg.get("enabled"):
+            continue
+        # Most channels need a token; CLI-only doesn't, but those aren't
+        # offered in quickstart.  Require *some* identifying field so a
+        # stray `enabled=True` on an empty config doesn't count.
+        if cfg.get("token") or cfg.get("bot_token") or cfg.get("webhook_url"):
+            return True
+    return False
+
+
+def _marker_path(name: str) -> Path:
+    """Return the path to a completion marker file under ~/.hazel/."""
+    return Path.home() / ".hazel" / f".{name}_done"
+
+
+def _instructions_hash(instructions: str) -> str:
+    return hashlib.sha256(instructions.encode("utf-8")).hexdigest()
+
+
+def _already_ran(name: str, instructions: str) -> bool:
+    """True if these exact instructions were run successfully before."""
+    marker = _marker_path(name)
+    if not marker.exists():
+        return False
+    try:
+        return marker.read_text(encoding="utf-8").strip() == _instructions_hash(instructions)
+    except OSError:
+        return False
+
+
+def _mark_ran(name: str, instructions: str) -> None:
+    """Record that these instructions were run successfully."""
+    marker = _marker_path(name)
+    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker.write_text(_instructions_hash(instructions), encoding="utf-8")
 
 # ── Minimax defaults ────────────────────────────────────────────────────────
 
@@ -384,15 +441,11 @@ def _step_channel_advanced(config: Config) -> bool:
 
 def _save_pending_instructions(path, instructions: str) -> None:
     """Save setup instructions to a pending file for later use."""
-    from pathlib import Path
-
     Path(path).write_text(instructions, encoding="utf-8")
 
 
 def _clear_pending_instructions(path) -> None:
     """Remove a pending setup instructions file after successful execution."""
-    from pathlib import Path
-
     p = Path(path)
     if p.exists():
         p.unlink()
@@ -403,7 +456,8 @@ def _step_setup_skills(config: Config, auto_instructions: str | None = None,
     """Run skills setup instructions through the agent.
 
     If *auto_instructions* is provided (from a setup config token),
-    runs them automatically with no prompts.
+    runs them automatically with no prompts.  If the same instructions
+    have already been run successfully on a prior quickstart, skips.
     """
     from hazel.cli.commands import _run_setup_skills
     from hazel.config.paths import get_pending_setup_skills_path
@@ -411,6 +465,15 @@ def _step_setup_skills(config: Config, auto_instructions: str | None = None,
     pending_path = get_pending_setup_skills_path()
 
     if auto_instructions:
+        if _already_ran("setup_skills", auto_instructions):
+            console.print()
+            console.print(
+                f"[green]✓[/green] Step 3 of {total_steps} — "
+                f"Skills already installed [dim](same instructions as last run)[/dim]"
+            )
+            _clear_pending_instructions(pending_path)
+            return
+
         console.print()
         console.print(
             Panel(
@@ -422,6 +485,7 @@ def _step_setup_skills(config: Config, auto_instructions: str | None = None,
         console.print()
         _run_setup_skills(config, auto_instructions)
         _clear_pending_instructions(pending_path)
+        _mark_ran("setup_skills", auto_instructions)
         console.print("[green]✓[/green] Skills setup complete")
         return
 
@@ -468,14 +532,35 @@ def run_quickstart(config: Config, has_setup_config: bool = False) -> tuple[Conf
         )
     )
 
+    provider_done = _provider_configured(config)
+    channel_done = _channel_configured(config)
+
     step = 1
     while step <= 2:
         if step == 1:
+            if provider_done:
+                console.print()
+                console.print(
+                    f"[green]✓[/green] Step 1 of {total_steps} — "
+                    f"LLM provider already configured "
+                    f"[dim](provider={config.agents.defaults.provider}, "
+                    f"model={config.agents.defaults.model})[/dim]"
+                )
+                step = 2
+                continue
             if not _step_provider(config, total_steps=total_steps):
                 console.print("[yellow]Setup cancelled.[/yellow]")
                 return config, False
             step = 2
         elif step == 2:
+            if channel_done:
+                console.print()
+                console.print(
+                    f"[green]✓[/green] Step 2 of {total_steps} — "
+                    f"Chat channel already configured"
+                )
+                step = 3
+                continue
             result = _step_channel(config, total_steps=total_steps)
             if result == _GO_BACK:
                 step = 1
@@ -493,7 +578,8 @@ def _step_setup_user_actions(config: Config, auto_instructions: str | None = Non
     """Run user actions setup through the agent.
 
     If *auto_instructions* is provided (from a setup config token),
-    runs them automatically with no prompts.
+    runs them automatically with no prompts.  If the same instructions
+    have already been run successfully on a prior quickstart, skips.
     """
     from hazel.cli.commands import _run_setup_user_actions
     from hazel.config.paths import get_pending_setup_user_actions_path
@@ -501,6 +587,16 @@ def _step_setup_user_actions(config: Config, auto_instructions: str | None = Non
     pending_path = get_pending_setup_user_actions_path()
 
     if auto_instructions:
+        if _already_ran("setup_user_actions", auto_instructions):
+            console.print()
+            console.print(
+                f"[green]✓[/green] Step 4 of {total_steps} — "
+                f"User actions already configured "
+                f"[dim](same instructions as last run)[/dim]"
+            )
+            _clear_pending_instructions(pending_path)
+            return
+
         console.print()
         console.print(
             Panel(
@@ -512,6 +608,7 @@ def _step_setup_user_actions(config: Config, auto_instructions: str | None = Non
         console.print()
         _run_setup_user_actions(config, auto_instructions)
         _clear_pending_instructions(pending_path)
+        _mark_ran("setup_user_actions", auto_instructions)
         console.print("[green]✓[/green] User actions setup complete")
         return
 
