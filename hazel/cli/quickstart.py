@@ -572,26 +572,34 @@ def run_quickstart(config: Config, has_setup_config: bool = False) -> tuple[Conf
     return config, True
 
 
-def _defer_user_actions(auto_instructions: str | None) -> None:
-    """During quickstart we deliberately defer user-actions to later.
+def _announce_pending_user_actions() -> None:
+    """Show a single unified heads-up if any user-actions are queued.
 
-    User actions typically require account auth and other manual bits
-    that would derail the "get to chat in 2 minutes" promise.  The
-    pending file is already saved (in commands.quickstart), so the
-    user can run `hazel setup-user-actions` whenever they're ready.
+    The pending file now contains both the original userActions payload
+    (if present) AND any queue_user_action entries the agent added
+    during skills setup — we only nag the user once, here, about the
+    combined list.
     """
-    if not auto_instructions:
+    from hazel.config.paths import get_pending_setup_user_actions_path
+
+    path = get_pending_setup_user_actions_path()
+    if not path.exists():
+        return
+    try:
+        content = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return
+    if not content:
         return
 
     console.print()
     console.print(
         Panel(
-            "[bold]Heads up — account hookups deferred[/bold]\n\n"
-            "Your config includes user actions (Gmail, Calendar, etc.)\n"
-            "that typically need account auth.  We've saved them and you\n"
-            "can run them anytime with:\n\n"
+            "[bold]A few follow-ups are queued[/bold]\n\n"
+            "Your setup queued some actions that need your attention\n"
+            "(account auth, API keys, etc.).  Run this when you're ready:\n\n"
             "  [cyan]hazel setup-user-actions[/cyan]\n\n"
-            "Let's get you chatting with Hazel first.",
+            "For now, let's get you chatting with Hazel.",
             border_style="yellow",
         )
     )
@@ -619,4 +627,6 @@ def run_quickstart_post_save(
 
     _step_setup_skills(config, auto_instructions=skills_instructions,
                        total_steps=total_steps)
-    _defer_user_actions(actions_instructions)
+    # Single unified announcement covering both the original userActions
+    # payload and anything the agent queued during skill setup.
+    _announce_pending_user_actions()

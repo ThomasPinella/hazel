@@ -618,9 +618,36 @@ class QueueUserActionTool(Tool):
         if self._pending_path.exists():
             existing = self._pending_path.read_text(encoding="utf-8")
 
-        # Avoid exact-title duplicates.
+        # Exact-title dedup (structured entry already present).
         if f"## {title}" in existing:
-            return f"Skipped: '{title}' already queued."
+            return f"Skipped: '{title}' already queued (exact title match)."
+
+        lowered = existing.lower()
+
+        # Skill-based dedup: if the skill is named anywhere in the existing
+        # file, the setup token's seed content almost certainly covers what
+        # the user needs to do for it.  Defer to that instead of queueing
+        # a near-duplicate with different wording.
+        if skill and skill.lower() in lowered:
+            return (
+                f"Skipped: skill '{skill}' is already referenced in the "
+                f"pending actions — not queueing '{title}' to avoid "
+                f"redundancy."
+            )
+
+        # Title-based fuzzy dedup for entries without a skill tag:
+        # if 2+ substantive tokens from the title appear in the existing
+        # file, assume redundancy.
+        title_tokens = {
+            t for t in title.lower().replace("/", " ").replace("-", " ").split()
+            if len(t) >= 4 and t not in _STOPWORDS
+        }
+        hits = sum(1 for t in title_tokens if t in lowered)
+        if len(title_tokens) >= 2 and hits >= 2:
+            return (
+                f"Skipped: '{title}' appears redundant with existing pending "
+                f"entries (matched tokens: {hits}/{len(title_tokens)})."
+            )
 
         entry_lines = [f"## {title}"]
         if skill:
@@ -634,13 +661,21 @@ class QueueUserActionTool(Tool):
         if not existing.strip():
             existing = (
                 "# Pending User Actions\n\n"
-                "These were queued during skill setup and need your attention.\n"
-                "Run `hazel setup-user-actions` to work through them.\n\n"
+                "These need your attention.  Run `hazel setup-user-actions` "
+                "to work through them.\n\n"
             )
 
         new_content = existing.rstrip() + "\n\n" + entry + "\n"
         self._pending_path.write_text(new_content, encoding="utf-8")
         return f"Queued user-action: {title}"
+
+
+# Small stopword list used by QueueUserActionTool's fuzzy dedup.  Kept tiny
+# on purpose — we only need to filter obvious filler.
+_STOPWORDS = {
+    "the", "and", "for", "with", "from", "your", "setup", "configure",
+    "install", "using", "need", "needs", "please", "action",
+}
 
 
 def _run_setup_skills(cfg: Config, instructions: str) -> None:
@@ -687,8 +722,33 @@ def _run_setup_skills(cfg: Config, instructions: str) -> None:
     pending_actions_path = get_pending_setup_user_actions_path()
     agent_loop.tools.register(QueueUserActionTool(pending_actions_path))
 
+    # Surface whatever is already in the pending user-actions file so the
+    # agent can avoid queueing near-duplicates (e.g. the setup token's
+    # userActions payload may already mention "Authenticate Gmail" —
+    # the agent shouldn't queue another entry for the same thing).
+    existing_pending = ""
+    if pending_actions_path.exists():
+        try:
+            existing_pending = pending_actions_path.read_text(encoding="utf-8").strip()
+        except OSError:
+            existing_pending = ""
+
     context = agent_loop.context
     workspace_path = str(cfg.workspace_path.expanduser().resolve())
+
+    pending_section = ""
+    if existing_pending:
+        pending_section = f"""
+
+## Existing pending user-actions
+The user's onboarding profile already queued these follow-ups.  When
+deciding whether to call `queue_user_action` below, skip anything the
+existing list already covers (even if your wording would be different)
+— we don't want duplicates.
+
+```
+{existing_pending}
+```"""
 
     system_prompt_parts = [
         f"""# Hazel — Setup Skills
@@ -722,13 +782,16 @@ Your workspace is at: {workspace_path}
 Installing a skill may reveal new follow-ups the user has to handle
 manually later (OAuth, API keys, account linking, etc.).  When you
 discover one:
-- Call the `queue_user_action` tool with a clear title + step-by-step
-  description of what the user needs to do and why.
+- First check "Existing pending user-actions" below — if the thing is
+  already covered there (even with different wording), DO NOT queue
+  a duplicate.
+- Otherwise call the `queue_user_action` tool with a clear title +
+  step-by-step description of what the user needs to do and why.
 - Include the skill name so the user knows which install triggered it.
-- Keep doing this throughout setup — one call per distinct action.
+- One call per distinct action.
 The queued entries end up in a file that the user works through later
 via `hazel setup-user-actions`.  Do not queue things you can handle
-yourself with exec/write_file.
+yourself with exec/write_file.{pending_section}
 
 ## How to finish
 When you have executed every step you reasonably can:
