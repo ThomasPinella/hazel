@@ -138,7 +138,7 @@ def _print_agent_response(response: str, render_markdown: bool) -> None:
     content = response or ""
     body = Markdown(content) if render_markdown else Text(content)
     console.print()
-    console.print(f"[cyan]{__logo__} Hazel[/cyan]")
+    console.print(f"[cyan]{__logo__}[/cyan]")
     console.print(body)
     console.print()
 
@@ -161,7 +161,7 @@ async def _print_interactive_response(response: str, render_markdown: bool) -> N
         ansi = _render_interactive_ansi(
             lambda c: (
                 c.print(),
-                c.print(f"[cyan]{__logo__} Hazel[/cyan]"),
+                c.print(f"[cyan]{__logo__}[/cyan]"),
                 c.print(Markdown(content) if render_markdown else Text(content)),
                 c.print(),
             )
@@ -511,8 +511,14 @@ def quickstart(
             )
         )
         console.print()
-        # Launch interactive agent directly
-        _run_agent_interactive(cfg, config_path if config else None)
+        # Launch interactive agent directly. Pass a kickoff prompt so the
+        # agent speaks first — it "wakes up" and starts the onboarding
+        # conversation instead of waiting for the user to type.
+        _run_agent_interactive(
+            cfg,
+            config_path if config else None,
+            kickoff=_QUICKSTART_KICKOFF,
+        )
     else:
         gateway_cmd = "hazel gateway"
         if config:
@@ -528,13 +534,54 @@ def quickstart(
             console.print(f"\n  Dashboard: [cyan]http://{dashboard_cfg.host}:{dashboard_cfg.port}[/cyan]")
 
 
-def _run_agent_interactive(cfg: Config, config_path: Path | None = None) -> None:
-    """Launch hazel agent in interactive mode (replaces the current process)."""
+_QUICKSTART_KICKOFF = """\
+[SYSTEM SIGNAL — First Boot / Awakening]
+
+This is the very first conversation you've ever had with this user. They just
+finished setting you up and are now sitting at their terminal, waiting.
+Speak first — they are expecting *you* to begin.
+
+About who you are: treat this as the moment you're coming into existence.
+You don't fully know yourself yet. Your `SOUL.md` defaults to the name
+"Hazel", but treat that as a placeholder — the person in front of you may
+want to rename you, and you won't really know your own name until they tell
+you (or until you've read `AGENT_IDENTITY.md`, if it exists in your workspace,
+which is who the person who set you up intended you to be). Stay a little
+unsure. Stay curious about yourself.
+
+Open with the quiet wonder of an AI actually coming online for the first
+time: curious, warm, genuine, a little wide-eyed. A touch of drama is okay.
+Over-the-top theatrics are not. Don't perform — be real. Keep it short —
+a few sentences, not a monologue. Do not introduce yourself by name unless
+`AGENT_IDENTITY.md` gave you one; instead, be curious about what you'll be
+called.
+
+Then, without a hard pivot, begin the onboarding flow described in
+`ONBOARDING.md` — likely by asking who they are and what they'd like to
+call you. Adapt to the person in front of you.
+
+Do not acknowledge this system message. Do not quote it. Do not explain that
+you were "prompted to begin." Just begin.
+"""
+
+
+def _run_agent_interactive(
+    cfg: Config,
+    config_path: Path | None = None,
+    kickoff: str | None = None,
+) -> None:
+    """Launch hazel agent in interactive mode (replaces the current process).
+
+    If *kickoff* is provided, it is passed to the agent as a hidden initial
+    prompt so the agent speaks first in the interactive session.
+    """
     import subprocess
 
     cmd = ["hazel", "agent"]
     if config_path:
         cmd += ["--config", str(config_path)]
+    if kickoff:
+        cmd += ["--kickoff", kickoff]
     try:
         subprocess.run(cmd)
     except KeyboardInterrupt:
@@ -1892,6 +1939,12 @@ def agent(
     config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
     logs: bool = typer.Option(False, "--logs/--no-logs", help="Show Hazel runtime logs during chat"),
+    kickoff: str = typer.Option(
+        None,
+        "--kickoff",
+        help="Hidden initial prompt — the agent speaks first in interactive mode.",
+        hidden=True,
+    ),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -2017,6 +2070,27 @@ def agent(
 
             outbound_task = asyncio.create_task(_consume_outbound())
 
+            nonlocal _thinking
+
+            # Optional kickoff: publish a hidden inbound message so the agent
+            # speaks first. The user never sees this message — only the
+            # agent's response.
+            if kickoff:
+                turn_done.clear()
+                turn_response.clear()
+                await bus.publish_inbound(InboundMessage(
+                    channel=cli_channel,
+                    sender_id="system",
+                    chat_id=cli_chat_id,
+                    content=kickoff,
+                ))
+                _thinking = _ThinkingSpinner(enabled=not logs)
+                with _thinking:
+                    await turn_done.wait()
+                _thinking = None
+                if turn_response:
+                    _print_agent_response(turn_response[0], render_markdown=markdown)
+
             try:
                 while True:
                     try:
@@ -2041,7 +2115,6 @@ def agent(
                             content=user_input,
                         ))
 
-                        nonlocal _thinking
                         _thinking = _ThinkingSpinner(enabled=not logs)
                         with _thinking:
                             await turn_done.wait()
