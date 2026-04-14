@@ -452,12 +452,12 @@ def _clear_pending_instructions(path) -> None:
 
 
 def _step_setup_skills(config: Config, auto_instructions: str | None = None,
-                       total_steps: int = 5) -> None:
+                       total_steps: int = 4) -> None:
     """Run skills setup instructions through the agent.
 
     If *auto_instructions* is provided (from a setup config token),
-    runs them automatically with no prompts.  If the same instructions
-    have already been run successfully on a prior quickstart, skips.
+    runs them automatically.  If the same instructions have already
+    been run successfully on a prior quickstart, skips.
     """
     from hazel.cli.commands import _run_setup_skills
     from hazel.config.paths import get_pending_setup_skills_path
@@ -477,8 +477,9 @@ def _step_setup_skills(config: Config, auto_instructions: str | None = None,
         console.print()
         console.print(
             Panel(
-                f"[bold]Step 3 of {total_steps} — Setup Skills[/bold]\n\n"
-                "Installing skills from your config...",
+                f"[bold]Step 3 of {total_steps} — Install Skills[/bold]\n\n"
+                "Running the automated parts of your setup now.\n"
+                "Anything that needs account auth will be deferred to later.",
                 border_style="blue",
             )
         )
@@ -486,7 +487,6 @@ def _step_setup_skills(config: Config, auto_instructions: str | None = None,
         _run_setup_skills(config, auto_instructions)
         _clear_pending_instructions(pending_path)
         _mark_ran("setup_skills", auto_instructions)
-        console.print("[green]✓[/green] Skills setup complete")
         return
 
     # No config token — skip entirely during quickstart
@@ -509,7 +509,7 @@ def run_quickstart(config: Config, has_setup_config: bool = False) -> tuple[Conf
 
     from hazel import __logo__, __version__
 
-    total_steps = 5 if has_setup_config else 2
+    total_steps = 4 if has_setup_config else 2
 
     steps_list = (
         "  1. Set up your LLM provider (AI brain)\n"
@@ -518,8 +518,7 @@ def run_quickstart(config: Config, has_setup_config: bool = False) -> tuple[Conf
     if has_setup_config:
         steps_list += (
             "\n  3. Install skills from your config"
-            "\n  4. Configure actions & workflows"
-            "\n  5. Chat with your new assistant"
+            "\n  4. Chat with your new assistant"
         )
 
     console.print()
@@ -573,69 +572,51 @@ def run_quickstart(config: Config, has_setup_config: bool = False) -> tuple[Conf
     return config, True
 
 
-def _step_setup_user_actions(config: Config, auto_instructions: str | None = None,
-                             total_steps: int = 5) -> None:
-    """Run user actions setup through the agent.
+def _defer_user_actions(auto_instructions: str | None) -> None:
+    """During quickstart we deliberately defer user-actions to later.
 
-    If *auto_instructions* is provided (from a setup config token),
-    runs them automatically with no prompts.  If the same instructions
-    have already been run successfully on a prior quickstart, skips.
+    User actions typically require account auth and other manual bits
+    that would derail the "get to chat in 2 minutes" promise.  The
+    pending file is already saved (in commands.quickstart), so the
+    user can run `hazel setup-user-actions` whenever they're ready.
     """
-    from hazel.cli.commands import _run_setup_user_actions
-    from hazel.config.paths import get_pending_setup_user_actions_path
-
-    pending_path = get_pending_setup_user_actions_path()
-
-    if auto_instructions:
-        if _already_ran("setup_user_actions", auto_instructions):
-            console.print()
-            console.print(
-                f"[green]✓[/green] Step 4 of {total_steps} — "
-                f"User actions already configured "
-                f"[dim](same instructions as last run)[/dim]"
-            )
-            _clear_pending_instructions(pending_path)
-            return
-
-        console.print()
-        console.print(
-            Panel(
-                f"[bold]Step 4 of {total_steps} — Setup User Actions[/bold]\n\n"
-                "Configuring actions and workflows from your config...",
-                border_style="blue",
-            )
-        )
-        console.print()
-        _run_setup_user_actions(config, auto_instructions)
-        _clear_pending_instructions(pending_path)
-        _mark_ran("setup_user_actions", auto_instructions)
-        console.print("[green]✓[/green] User actions setup complete")
+    if not auto_instructions:
         return
 
-    # No config token — skip entirely during quickstart
-    # (user can run `hazel setup-user-actions` later)
-    return
+    console.print()
+    console.print(
+        Panel(
+            "[bold]Heads up — account hookups deferred[/bold]\n\n"
+            "Your config includes user actions (Gmail, Calendar, etc.)\n"
+            "that typically need account auth.  We've saved them and you\n"
+            "can run them anytime with:\n\n"
+            "  [cyan]hazel setup-user-actions[/cyan]\n\n"
+            "Let's get you chatting with Hazel first.",
+            border_style="yellow",
+        )
+    )
 
 
 def run_quickstart_post_save(
     config: Config, setup_config_data: dict[str, str] | None = None
 ) -> None:
-    """Run post-save setup steps (skills + user actions).
+    """Run post-save setup steps.
 
     Called by the quickstart command after saving config, so the agent
     has a working provider available.
 
     If *setup_config_data* is provided (from a --setup-config token),
-    the skillsSetup and userActions values are fed directly and run
-    automatically with no prompts.  Without a config token, these
-    steps are skipped (user can run them later via standalone commands).
+    skillsSetup is run automatically as step 3.  userActions are
+    deliberately deferred to later via `hazel setup-user-actions` —
+    they typically need account auth which would slow down the
+    "get to chat fast" onboarding path.  Without a config token,
+    both steps are skipped.
     """
     skills_instructions = (setup_config_data or {}).get("skillsSetup") or None
     actions_instructions = (setup_config_data or {}).get("userActions") or None
 
-    total_steps = 5 if (skills_instructions or actions_instructions) else 2
+    total_steps = 4 if (skills_instructions or actions_instructions) else 2
 
     _step_setup_skills(config, auto_instructions=skills_instructions,
                        total_steps=total_steps)
-    _step_setup_user_actions(config, auto_instructions=actions_instructions,
-                             total_steps=total_steps)
+    _defer_user_actions(actions_instructions)

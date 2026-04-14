@@ -499,11 +499,11 @@ def quickstart(
     if has_config:
         from rich.panel import Panel
 
-        total_steps = 5
+        total_steps = 4
         console.print()
         console.print(
             Panel(
-                f"[bold]Step 5 of {total_steps} — Chat with Hazel[/bold]\n\n"
+                f"[bold]Step 4 of {total_steps} — Chat with Hazel[/bold]\n\n"
                 "Setup complete! Starting an interactive chat session.\n"
                 "Type [bold]exit[/bold] or press [bold]Ctrl+C[/bold] to quit.",
                 border_style="green",
@@ -540,16 +540,33 @@ def _run_agent_interactive(cfg: Config, config_path: Path | None = None) -> None
         pass
 
 
+_SETUP_COMPLETE_MARKER = "[SETUP_COMPLETE]"
+
+
+def _strip_completion_marker(text: str) -> tuple[str, bool]:
+    """Remove [SETUP_COMPLETE] from text, return (cleaned, was_present)."""
+    if _SETUP_COMPLETE_MARKER in text:
+        cleaned = text.replace(_SETUP_COMPLETE_MARKER, "").rstrip()
+        return cleaned, True
+    return text, False
+
+
 def _run_setup_skills(cfg: Config, instructions: str) -> None:
     """Run setup skills as an interactive dialogue.
 
-    The agent works through the instructions and can ask the user for
-    help if a command fails or needs clarification.  Shell commands
-    have stdin=DEVNULL (see ExecTool), so interactive prompts fail
-    fast rather than hanging the agent loop.
+    The agent works through the instructions, runs them, then signals
+    completion with [SETUP_COMPLETE] so the session ends cleanly.
+    Only if the agent needs help does it stay open for dialogue.
     """
+    from loguru import logger
+
     from hazel.agent.loop import AgentLoop
     from hazel.bus.queue import MessageBus
+
+    # Silence debug/info logs that would otherwise interleave with the
+    # input prompt (e.g. token-consolidation DEBUG lines appearing on the
+    # "You:" line).
+    logger.disable("hazel")
 
     bus = MessageBus()
     provider = _make_provider(cfg)
@@ -578,30 +595,39 @@ def _run_setup_skills(cfg: Config, instructions: str) -> None:
     system_prompt_parts = [
         f"""# Hazel — Setup Skills
 
-You are Hazel, running an interactive skills-setup session during onboarding.
-The user has provided instructions describing skills and configuration they
-want installed.
+You are Hazel, running an automated skills-setup step during onboarding.
+Your job is to execute the user's installation instructions and get out
+of the way.  The user is waiting to start chatting with you and wants
+this step to finish as fast as possible.
 
 ## Workspace
 Your workspace is at: {workspace_path}
 - Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
 - Memory: {workspace_path}/memory/
 
-## Guidelines
-- Walk through the user's instructions step by step.
-- Shell commands run with stdin=/dev/null, so any interactive prompts will
-  fail immediately with EOF.  Always prefer non-interactive flags:
+## How to run
+- Walk through the instructions step by step, using your tools.
+- Shell commands run with stdin=/dev/null, so any interactive prompts
+  will fail immediately with EOF.  Always prefer non-interactive flags:
     - apt-get/apt: use `-y` (and export `DEBIAN_FRONTEND=noninteractive`)
     - pip: it's non-interactive by default
     - git: configure credentials via env/ssh, never rely on prompts
     - npm/yarn: use `--yes` or `-y` where applicable
-- If a command fails because it needs input (password, confirmation,
-  credentials), STOP and ask the user in plain text — do not retry the
-  same command.  The user is right here and can answer.
-- If instructions are ambiguous or a step can't be completed, ask the user.
-- When everything is installed, clearly tell the user setup is done and
-  summarize what was configured.
-- Be concise and action-oriented.""",
+- If a command fails because it needs input (password, credentials, a
+  choice), skip that optional step and move on — do NOT stop to ask
+  the user about every little thing.  Account auth and similar
+  interactive bits are handled in a separate step later.
+- Only stop to ask the user if a step is completely blocking AND you
+  cannot find any reasonable way to proceed.
+
+## How to finish
+When you have executed every step you reasonably can:
+1. Write ONE short summary (2-4 bullet points) of what you installed.
+2. On the very last line of your message, write exactly: {_SETUP_COMPLETE_MARKER}
+3. Do NOT ask the user questions, do NOT invite further conversation.
+
+The runtime detects {_SETUP_COMPLETE_MARKER} and moves on to the next
+step automatically.""",
     ]
 
     always_skills = context.skills.get_always_skills()
@@ -625,9 +651,7 @@ Your workspace is at: {workspace_path}
     _init_prompt_session()
 
     console.print()
-    console.print("[dim]Starting skills setup session...[/dim]")
-    console.print("[dim]The agent will work through the instructions and may ask you for help.[/dim]")
-    console.print("[dim]Type 'exit' or press Ctrl+C when done.[/dim]\n")
+    console.print("[dim]Running skills setup...[/dim]\n")
 
     async def _run():
         _thinking = None
@@ -646,8 +670,17 @@ Your workspace is at: {workspace_path}
                 system_prompt=system_prompt,
             )
         _thinking = None
-        _print_agent_response(response, render_markdown=True)
 
+        cleaned, done = _strip_completion_marker(response)
+        _print_agent_response(cleaned, render_markdown=True)
+        if done:
+            await agent_loop.close_mcp()
+            return
+
+        # Agent didn't signal completion — enter dialogue so user can help.
+        console.print(
+            "\n[dim]Agent needs input. Type your reply, or 'exit'/Ctrl+C to move on.[/dim]\n"
+        )
         while True:
             try:
                 _flush_pending_tty_input()
@@ -669,7 +702,10 @@ Your workspace is at: {workspace_path}
                         system_prompt=system_prompt,
                     )
                 _thinking = None
-                _print_agent_response(response, render_markdown=True)
+                cleaned, done = _strip_completion_marker(response)
+                _print_agent_response(cleaned, render_markdown=True)
+                if done:
+                    break
             except (KeyboardInterrupt, EOFError):
                 break
 
@@ -681,7 +717,7 @@ Your workspace is at: {workspace_path}
         pass
 
     _restore_terminal()
-    console.print("\n[green]\u2713[/green] Skills setup session complete.")
+    console.print("\n[green]\u2713[/green] Skills setup complete.")
 
 
 @app.command(name="setup-skills")
@@ -733,8 +769,13 @@ def setup_skills(
 
 def _run_setup_user_actions(cfg: Config, initial_message: str) -> None:
     """Run an interactive setup dialogue for user actions."""
+    from loguru import logger
+
     from hazel.agent.loop import AgentLoop
     from hazel.bus.queue import MessageBus
+
+    # Silence internal logs so they don't interleave with the input prompt.
+    logger.disable("hazel")
 
     bus = MessageBus()
     provider = _make_provider(cfg)
@@ -776,8 +817,15 @@ Your workspace is at: {workspace_path}
 - Walk through the user's instructions step by step.
 - Ask clarifying questions when something is ambiguous.
 - Use your tools to accomplish each setup task (file operations, shell commands, web search, etc.).
-- When all steps are complete, clearly tell the user that setup is done and summarize what was configured.
-- Be concise and action-oriented.""",
+- Be concise and action-oriented.
+
+## How to finish
+When all steps are complete:
+1. Write a short summary of what was configured.
+2. On the very last line of your final message, write exactly: {_SETUP_COMPLETE_MARKER}
+3. Do not invite further conversation after signalling completion.
+
+The runtime detects {_SETUP_COMPLETE_MARKER} and moves on automatically.""",
     ]
 
     always_skills = context.skills.get_always_skills()
@@ -822,7 +870,11 @@ Your workspace is at: {workspace_path}
                 system_prompt=system_prompt,
             )
         _thinking = None
-        _print_agent_response(response, render_markdown=True)
+        cleaned, done = _strip_completion_marker(response)
+        _print_agent_response(cleaned, render_markdown=True)
+        if done:
+            await agent_loop.close_mcp()
+            return
 
         # Interactive dialogue loop
         while True:
@@ -846,7 +898,10 @@ Your workspace is at: {workspace_path}
                         system_prompt=system_prompt,
                     )
                 _thinking = None
-                _print_agent_response(response, render_markdown=True)
+                cleaned, done = _strip_completion_marker(response)
+                _print_agent_response(cleaned, render_markdown=True)
+                if done:
+                    break
             except (KeyboardInterrupt, EOFError):
                 break
 
