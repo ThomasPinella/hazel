@@ -15,6 +15,8 @@ hazel agent                  # interactive REPL
 hazel gateway                # long-running server with channels + cron + heartbeat
 hazel setup-skills           # paste setup instructions for one-shot skill installation
 hazel setup-user-actions     # interactive dialogue to configure actions/workflows
+hazel auth <name>            # store a secret (API key / OAuth token); LLM never sees values
+hazel secret list            # list stored secret names
 ```
 
 ### Custom Install via onboardme.ai
@@ -62,6 +64,7 @@ hazel/
 │       ├── cron.py          # CronTool — manage scheduled jobs
 │       ├── entity.py        # RecordChangeTool, QueryChangesTool, RetrieveEntitiesTool — entity memory
 │       ├── intents.py       # Intent tools — task/reminder/event/followup management (SQLite-backed)
+│       ├── secrets.py       # RequestSecretTool — ask user for credentials (agent never sees values)
 │       └── mcp.py           # MCPToolWrapper + connect_mcp_servers — MCP client integration
 ├── bus/
 │   ├── events.py            # InboundMessage, OutboundMessage dataclasses
@@ -83,8 +86,13 @@ hazel/
 │   └── mochat.py            # MoChat
 ├── cli/
 │   ├── commands.py          # ★ Typer CLI — quickstart, onboard, agent, gateway, setup-skills, setup-user-actions, status, channels, provider login
+│   ├── auth.py              # `hazel auth <name>` + `hazel secret list` (unified secrets CLI)
 │   ├── onboard_wizard.py    # Interactive setup wizard
 │   └── model_info.py        # Model metadata for wizard
+├── secrets/
+│   ├── store.py             # File-backed store at ~/.hazel/secrets/ (chmod 0700/0600)
+│   ├── registry.py          # OAuth provider registry (github device flow + extensible)
+│   └── __init__.py          # Public API: get, set, exists, delete, list_names, path_for
 ├── config/
 │   ├── schema.py            # ★ Pydantic config schema (Config, ProvidersConfig, ChannelsConfig, etc.)
 │   ├── loader.py            # load_config / save_config / migration
@@ -266,6 +274,41 @@ Key design:
 - **Recurrence**: RFC 5545 RRULE strings parsed via `dateutil.rrule` (transitive dependency of `croniter`).
 - **DB caching**: Module-level connection cache keyed by workspace path. WAL mode for concurrent reads.
 
+### Secrets (`secrets/`)
+Unified store for every sensitive value Hazel needs — API keys, OAuth tokens,
+MCP bearers, skill credentials. **The LLM never sees raw values.**
+
+**Storage:** `~/.hazel/secrets/<name>`, chmod `0600` per file, `0700` on the
+directory. Names are lowercase `[a-z0-9_-]+`, max 64 chars. Writes are atomic
+(tempfile + `os.replace`).
+
+**Three read paths — all resolve to the same file:**
+1. **Python code (skills / internals)**: `from hazel.secrets import get; token = get("gmail")`.
+2. **Shell subprocesses (via `exec` tool)**: auto-injected as `HAZEL_SECRET_<NAME>=<value>` — shell scripts read them like any env var. Hyphens in secret names become underscores in the env var (`github-token` → `HAZEL_SECRET_GITHUB_TOKEN`) because POSIX shells can't dereference `$FOO-BAR`.
+3. **Config references**: `config.json` may contain `"@secret:gmail"` as any string value; `load_config` resolves them on load. Missing secrets leave the placeholder (logs a warning) so features degrade instead of crashing. `save_config` round-trips placeholders back to disk — a load→save cycle never leaks resolved plaintext into `config.json`.
+
+**CLI:**
+- `hazel auth <name>` — set a secret. If `<name>` has a registered OAuth handler (`hazel.secrets.registry`), runs the flow; otherwise prompts via `getpass`.
+- `hazel auth <name> --from-env VAR` — copy from an env var (for automation).
+- `hazel auth <name> --remove` — delete.
+- `hazel auth <name> --show` — print value (opt-in escape hatch, dangerous).
+- `hazel auth <name> --force` — skip the overwrite confirmation.
+- `hazel secret list` — list stored names only, never values.
+
+**Agent-facing:** the `request_secret` tool lets the LLM check availability by
+name (returns `ready` or `missing` + the exact `hazel auth <name>` command to
+show the user). The system prompt instructs it to never ask for pastes in
+chat. Pair with `queue_user_action` for deferred setup.
+
+**OAuth registry (`secrets/registry.py`):** `_OAUTH_PROVIDERS: dict[str, Callable[[], str]]`.
+v1 ships with a GitHub device-flow provider (requires `HAZEL_GITHUB_CLIENT_ID`
+env var — register an app at github.com/settings/applications/new). Add new
+services by registering a zero-arg function that returns the token.
+
+**Back-compat:** existing `providers.<name>.api_key` config keys still work
+exactly as before. The secrets system is additive — you can migrate values
+opportunistically by switching an `api_key` string to `"@secret:<name>"`.
+
 ### Heartbeat (`heartbeat/service.py`)
 - Periodically reads `HEARTBEAT.md` from workspace
 - Phase 1: LLM decides skip/run via virtual tool call
@@ -362,6 +405,11 @@ The install script and `hazel quickstart` support an optional `--setup-config <t
 1. Create `hazel/skills/{name}/SKILL.md` (built-in) or `workspace/skills/{name}/SKILL.md` (user)
 2. Add YAML frontmatter with `name`, `description`, optional `metadata` (JSON with `requires`, `always`)
 3. The agent discovers it automatically and can read it on demand
+
+### Add a new OAuth provider for `hazel auth`
+1. Write a zero-arg function in `hazel/secrets/registry.py` that runs the OAuth flow and returns the access token as a string
+2. Register it in `_OAUTH_PROVIDERS[name] = handler`
+3. `hazel auth <name>` now routes through the handler instead of prompting via getpass. The token lands at `~/.hazel/secrets/<name>` and becomes available as `HAZEL_SECRET_<NAME>` env, via `hazel.secrets.get(name)`, and via `"@secret:<name>"` in config.json — no other wiring needed.
 
 ## Testing
 

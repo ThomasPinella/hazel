@@ -34,6 +34,7 @@ from hazel.agent.skills import BUILTIN_SKILLS_DIR
 from hazel.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTool, WriteFileTool
 from hazel.agent.tools.message import MessageTool
 from hazel.agent.tools.registry import ToolRegistry
+from hazel.agent.tools.secrets import RequestSecretTool
 from hazel.agent.tools.shell import ExecTool
 from hazel.agent.tools.spawn import SpawnTool
 from hazel.agent.tools.web import WebFetchTool, WebSearchTool
@@ -148,6 +149,7 @@ class AgentLoop:
         self.tools.register(SpawnTool(manager=self.subagents))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+        self.tools.register(RequestSecretTool())
         self.tools.register(RecordChangeTool(workspace=self.workspace))
         self.tools.register(QueryChangesTool(workspace=self.workspace))
         self.tools.register(RetrieveEntitiesTool(

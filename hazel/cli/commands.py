@@ -2443,5 +2443,11 @@ def _login_github_copilot() -> None:
         raise typer.Exit(1)
 
 
+# Register the unified secrets CLI (`hazel auth <name>`, `hazel secret list`).
+# Imported for side effects after `app` is fully constructed so the subcommands
+# attach to it. Keep this below all module-level route declarations.
+from hazel.cli import auth as _auth_commands  # noqa: E402,F401
+
+
 if __name__ == "__main__":
     app()

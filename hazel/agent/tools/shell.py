@@ -91,6 +91,33 @@ class ExecTool(Tool):
         if self.path_append:
             env["PATH"] = env.get("PATH", "") + os.pathsep + self.path_append
 
+        # Inject stored secrets as HAZEL_SECRET_<NAME>=<value> so skills and
+        # shell-script wrappers can read credentials without the agent ever
+        # seeing the value. Subprocess env is process-private and not logged.
+        #
+        # Hyphens in secret names become underscores in the env var because
+        # POSIX shells cannot dereference names containing `-` (bash parses
+        # `$FOO-BAR` as `$FOO` concatenated with `-BAR`). So a secret named
+        # `github-token` is injected as `HAZEL_SECRET_GITHUB_TOKEN`.
+        #
+        # Values with embedded null bytes are skipped because POSIX env vars
+        # are C strings — subprocess would raise ValueError for the whole
+        # command. A corrupted or unreadable single secret should not break
+        # every shell command.
+        try:
+            from hazel.secrets import get, list_names
+            for secret_name in list_names():
+                try:
+                    value = get(secret_name)
+                except Exception:
+                    continue
+                if "\x00" in value:
+                    continue
+                env_name = "HAZEL_SECRET_" + secret_name.upper().replace("-", "_")
+                env[env_name] = value
+        except Exception:
+            pass
+
         try:
             # stdin=DEVNULL is critical: without it, interactive commands
             # (password prompts, apt confirms, git auth, etc.) block

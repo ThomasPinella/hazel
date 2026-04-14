@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from hazel.config.loader import get_config_path
@@ -53,6 +54,23 @@ def get_bridge_install_dir() -> Path:
 def get_legacy_sessions_dir() -> Path:
     """Return the legacy global session directory used for migration fallback."""
     return Path.home() / ".hazel" / "sessions"
+
+
+def get_secrets_dir() -> Path:
+    """Return the unified secrets directory (``~/.hazel/secrets``, chmod 0700).
+
+    Secrets are shared across Hazel instances on a machine so that OAuth
+    tokens and API keys don't have to be re-authed per config. The directory
+    is chmod'd to ``0700`` on every access to repair accidental perm changes.
+    """
+    d = Path.home() / ".hazel" / "secrets"
+    d.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(d, 0o700)
+    except OSError:
+        # Windows / non-POSIX: best effort only
+        pass
+    return d
 
 
 def get_pending_setup_skills_path() -> Path:
