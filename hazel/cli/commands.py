@@ -541,7 +541,13 @@ def _run_agent_interactive(cfg: Config, config_path: Path | None = None) -> None
 
 
 def _run_setup_skills(cfg: Config, instructions: str) -> None:
-    """Feed setup instructions to the agent for execution."""
+    """Run setup skills as an interactive dialogue.
+
+    The agent works through the instructions and can ask the user for
+    help if a command fails or needs clarification.  Shell commands
+    have stdin=DEVNULL (see ExecTool), so interactive prompts fail
+    fast rather than hanging the agent loop.
+    """
     from hazel.agent.loop import AgentLoop
     from hazel.bus.queue import MessageBus
 
@@ -566,32 +572,116 @@ def _run_setup_skills(cfg: Config, instructions: str) -> None:
         dashboard_config=cfg.gateway.dashboard,
     )
 
-    import asyncio
+    context = agent_loop.context
+    workspace_path = str(cfg.workspace_path.expanduser().resolve())
 
-    async def _run():
-        prompt = (
-            "You are running a setup-skills step during Hazel onboarding. "
-            "Follow the instructions below exactly. Execute any shell commands, "
-            "create any files, and install any packages as described. "
-            "Work in the workspace directory. Report what you did when done.\n\n"
-            f"{instructions}"
+    system_prompt_parts = [
+        f"""# Hazel — Setup Skills
+
+You are Hazel, running an interactive skills-setup session during onboarding.
+The user has provided instructions describing skills and configuration they
+want installed.
+
+## Workspace
+Your workspace is at: {workspace_path}
+- Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
+- Memory: {workspace_path}/memory/
+
+## Guidelines
+- Walk through the user's instructions step by step.
+- Shell commands run with stdin=/dev/null, so any interactive prompts will
+  fail immediately with EOF.  Always prefer non-interactive flags:
+    - apt-get/apt: use `-y` (and export `DEBIAN_FRONTEND=noninteractive`)
+    - pip: it's non-interactive by default
+    - git: configure credentials via env/ssh, never rely on prompts
+    - npm/yarn: use `--yes` or `-y` where applicable
+- If a command fails because it needs input (password, confirmation,
+  credentials), STOP and ask the user in plain text — do not retry the
+  same command.  The user is right here and can answer.
+- If instructions are ambiguous or a step can't be completed, ask the user.
+- When everything is installed, clearly tell the user setup is done and
+  summarize what was configured.
+- Be concise and action-oriented.""",
+    ]
+
+    always_skills = context.skills.get_always_skills()
+    if always_skills:
+        always_content = context.skills.load_skills_for_context(always_skills)
+        if always_content:
+            system_prompt_parts.append(f"# Active Skills\n\n{always_content}")
+
+    skills_summary = context.skills.build_skills_summary()
+    if skills_summary:
+        system_prompt_parts.append(
+            "# Skills\n\n"
+            "The following skills extend your capabilities. "
+            "To use a skill, read its SKILL.md file using the read_file tool.\n\n"
+            f"{skills_summary}"
         )
-        response = await agent_loop.process_direct(
-            prompt,
-            session_key="cli:setup-skills",
-            channel="cli",
-            chat_id="direct",
-        )
-        await agent_loop.close_mcp()
-        return response
+
+    system_prompt = "\n\n---\n\n".join(system_prompt_parts)
+    session_key = "cli:setup-skills"
+
+    _init_prompt_session()
 
     console.print()
-    console.print("[dim]Running setup instructions...[/dim]")
-    response = asyncio.run(_run())
-    if response:
-        from rich.markdown import Markdown as RichMarkdown
-        console.print()
-        console.print(RichMarkdown(response))
+    console.print("[dim]Starting skills setup session...[/dim]")
+    console.print("[dim]The agent will work through the instructions and may ask you for help.[/dim]")
+    console.print("[dim]Type 'exit' or press Ctrl+C when done.[/dim]\n")
+
+    async def _run():
+        _thinking = None
+
+        async def _progress(content: str, *, tool_hint: bool = False) -> None:
+            _print_cli_progress_line(content, _thinking)
+
+        _thinking = _ThinkingSpinner(enabled=True)
+        with _thinking:
+            response = await agent_loop.process_direct(
+                instructions,
+                session_key=session_key,
+                channel="cli",
+                chat_id="setup-skills",
+                on_progress=_progress,
+                system_prompt=system_prompt,
+            )
+        _thinking = None
+        _print_agent_response(response, render_markdown=True)
+
+        while True:
+            try:
+                _flush_pending_tty_input()
+                user_input = await _read_interactive_input_async()
+                command = user_input.strip()
+                if not command:
+                    continue
+                if _is_exit_command(command):
+                    break
+
+                _thinking = _ThinkingSpinner(enabled=True)
+                with _thinking:
+                    response = await agent_loop.process_direct(
+                        user_input,
+                        session_key=session_key,
+                        channel="cli",
+                        chat_id="setup-skills",
+                        on_progress=_progress,
+                        system_prompt=system_prompt,
+                    )
+                _thinking = None
+                _print_agent_response(response, render_markdown=True)
+            except (KeyboardInterrupt, EOFError):
+                break
+
+        await agent_loop.close_mcp()
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
+
+    _restore_terminal()
+    console.print("\n[green]\u2713[/green] Skills setup session complete.")
 
 
 @app.command(name="setup-skills")

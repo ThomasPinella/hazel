@@ -92,8 +92,15 @@ class ExecTool(Tool):
             env["PATH"] = env.get("PATH", "") + os.pathsep + self.path_append
 
         try:
+            # stdin=DEVNULL is critical: without it, interactive commands
+            # (password prompts, apt confirms, git auth, etc.) block
+            # forever waiting for input that the agent loop can never
+            # provide.  Giving them an immediate EOF makes them fail fast
+            # so the agent can retry with non-interactive flags (-y,
+            # --yes, DEBIAN_FRONTEND=noninteractive, etc.).
             process = await asyncio.create_subprocess_shell(
                 command,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
